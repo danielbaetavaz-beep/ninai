@@ -32,9 +32,9 @@ export default function Onboarding() {
     let pid = params.get('plan');
 
     if (pid) {
+      setPlanId(pid);
       const { data: plan } = await supabase.from('plans').select('*').eq('id', pid).single();
       if (plan && plan.onboarding_conversation?.length > 0) {
-        setPlanId(pid);
         setMessages(plan.onboarding_conversation);
         return;
       }
