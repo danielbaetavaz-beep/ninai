@@ -15,41 +15,97 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
   const [showOtherExercise, setShowOtherExercise] = useState(false);
   const [otherExerciseText, setOtherExerciseText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showCloseDay, setShowCloseDay] = useState(false);
+  const [closingDay, setClosingDay] = useState(false);
+  const [dayClosed, setDayClosed] = useState(false);
+  const [viewingDate, setViewingDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  const today = new Date().toISOString().split('T')[0];
+  const realToday = new Date().toISOString().split('T')[0];
   const dayNames = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
-  const dayKey = dayNames[new Date().getDay()];
   const dayLabels: Record<string, string> = { domingo: 'Domingo', segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado' };
 
-  useEffect(() => { loadToday(); }, []);
+  // Get day key for a given date string
+  function getDayKey(dateStr: string) {
+    const d = new Date(dateStr + 'T12:00:00');
+    return dayNames[d.getDay()];
+  }
 
-  async function loadToday() {
-    const { data: meals } = await supabase.from('meals').select('*').eq('plan_id', plan.id).eq('date', today);
-    const { data: exercise } = await supabase.from('exercises').select('*').eq('plan_id', plan.id).eq('date', today).limit(1);
-    const { data: ci } = await supabase.from('daily_checkins').select('*').eq('plan_id', plan.id).eq('date', today).limit(1);
+  // Get next day date string
+  function getNextDay(dateStr: string) {
+    const d = new Date(dateStr + 'T12:00:00');
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  }
 
-    const plannedMeals = weeklyPlan?.meal_plan_detailed?.[dayKey] || [];
+  // Check if a date is within the weekly plan range
+  function isDateInWeek(dateStr: string) {
+    if (!weeklyPlan?.week_start) return false;
+    const ws = new Date(weeklyPlan.week_start + 'T00:00:00');
+    const we = new Date(ws);
+    we.setDate(we.getDate() + 6);
+    const d = new Date(dateStr + 'T00:00:00');
+    return d >= ws && d <= we;
+  }
+
+  const today = viewingDate;
+  const dayKey = getDayKey(today);
+  const isViewingToday = today === realToday;
+  const isViewingFuture = today > realToday;
+
+  useEffect(() => { checkAndLoadDay(); }, []);
+
+  async function checkAndLoadDay() {
+    // Check if today is already closed, if so show next day
+    const { data: ci } = await supabase.from('daily_checkins').select('*').eq('plan_id', plan.id).eq('date', realToday).limit(1);
+    if (ci && ci.length > 0 && ci[0].day_closed) {
+      const nextDay = getNextDay(realToday);
+      if (isDateInWeek(nextDay)) {
+        setViewingDate(nextDay);
+        setDayClosed(true);
+        loadDay(nextDay);
+      } else {
+        // Next day is outside the week — stay on today showing closed state
+        setDayClosed(true);
+        loadDay(realToday);
+      }
+    } else {
+      loadDay(realToday);
+    }
+  }
+
+  async function loadDay(dateStr: string) {
+    const dk = getDayKey(dateStr);
+    const { data: meals } = await supabase.from('meals').select('*').eq('plan_id', plan.id).eq('date', dateStr);
+    const { data: exercise } = await supabase.from('exercises').select('*').eq('plan_id', plan.id).eq('date', dateStr).limit(1);
+    const { data: ci } = await supabase.from('daily_checkins').select('*').eq('plan_id', plan.id).eq('date', dateStr).limit(1);
+
+    const plannedMeals = weeklyPlan?.meal_plan_detailed?.[dk] || [];
     const mealList = plannedMeals.map((pm: any) => {
       const existing = meals?.find(m => m.meal_name === pm.meal);
-      return existing || { meal_name: pm.meal, planned_description: pm.description, macros: null, date: today, plan_id: plan.id, location: pm.location };
+      return existing || { meal_name: pm.meal, planned_description: pm.description, macros: null, date: dateStr, plan_id: plan.id, location: pm.location };
     });
     setTodayMeals(mealList);
 
-    const plannedEx = weeklyPlan?.exercise_plan_detailed?.[dayKey];
+    const plannedEx = weeklyPlan?.exercise_plan_detailed?.[dk];
     if (exercise && exercise.length > 0) {
       setTodayExercise(exercise[0]);
     } else if (plannedEx) {
-      setTodayExercise({ planned_type: plannedEx.type, description: plannedEx.description, done: false, date: today });
+      setTodayExercise({ planned_type: plannedEx.type, description: plannedEx.description, done: false, date: dateStr });
+    } else {
+      setTodayExercise(null);
     }
 
     setCheckin(ci && ci.length > 0 ? ci[0] : null);
   }
 
+  async function loadToday() {
+    await loadDay(today);
+  }
+
   // Save or update a meal record
   async function saveMeal(mealName: string, data: any) {
-    // Check if meal record already exists
     const { data: existing } = await supabase
       .from('meals')
       .select('id')
@@ -59,11 +115,9 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
       .limit(1);
 
     if (existing && existing.length > 0) {
-      // Update existing
       const { error } = await supabase.from('meals').update(data).eq('id', existing[0].id);
       if (error) console.error('Error updating meal:', error);
     } else {
-      // Insert new
       const { error } = await supabase.from('meals').insert({
         plan_id: plan.id,
         weekly_plan_id: weeklyPlan?.id,
@@ -81,13 +135,8 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     const fileName = `${plan.id}/${today}/${mealName.replace(/\s/g, '_')}_${Date.now()}.jpg`;
     await supabase.storage.from('meal-photos').upload(fileName, file);
     const { data: urlData } = supabase.storage.from('meal-photos').getPublicUrl(fileName);
-    
     const planned = todayMeals.find(m => m.meal_name === mealName);
-    await saveMeal(mealName, {
-      planned_description: planned?.planned_description || '',
-      photo_url: urlData.publicUrl,
-    });
-    
+    await saveMeal(mealName, { planned_description: planned?.planned_description || '', photo_url: urlData.publicUrl });
     setUploading(false);
     await loadToday();
   }
@@ -96,7 +145,6 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
   async function analyzeMealDescription(mealName: string) {
     if (!mealDescription.trim()) return;
     setAnalyzing(true);
-
     try {
       const res = await fetch('/api/analyze-meal', {
         method: 'POST',
@@ -121,10 +169,8 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
   async function confirmMealAnalysis() {
     if (!confirmData || saving) return;
     setSaving(true);
-    
     const { mealName, analysis, description } = confirmData;
     const existing = todayMeals.find(m => m.meal_name === mealName);
-
     await saveMeal(mealName, {
       planned_description: existing?.planned_description || '',
       photo_url: existing?.photo_url || null,
@@ -135,7 +181,6 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
       macros: analysis.estimated_macros,
       completed: true,
     });
-
     setConfirmData(null);
     setMealDescription('');
     setExpandedMeal(null);
@@ -188,44 +233,25 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
 
   // Save or update exercise
   async function markExercise(done: boolean, actualType?: string) {
-    const { data: existing } = await supabase
-      .from('exercises')
-      .select('id')
-      .eq('plan_id', plan.id)
-      .eq('date', today)
-      .limit(1);
-
+    const { data: existing } = await supabase.from('exercises').select('id').eq('plan_id', plan.id).eq('date', today).limit(1);
     const exerciseData = {
       planned_type: todayExercise?.planned_type,
       actual_type: actualType || todayExercise?.planned_type,
       done,
       has_gym_access: weeklyPlan?.routine?.[dayKey]?.gym ?? true,
     };
-
     if (existing && existing.length > 0) {
       await supabase.from('exercises').update(exerciseData).eq('id', existing[0].id);
     } else {
-      await supabase.from('exercises').insert({
-        plan_id: plan.id,
-        weekly_plan_id: weeklyPlan?.id,
-        date: today,
-        ...exerciseData,
-      });
+      await supabase.from('exercises').insert({ plan_id: plan.id, weekly_plan_id: weeklyPlan?.id, date: today, ...exerciseData });
     }
-
     setShowOtherExercise(false);
     setOtherExerciseText('');
     await loadToday();
   }
 
   async function saveCheckin(field: string, value: any) {
-    const { data: existing } = await supabase
-      .from('daily_checkins')
-      .select('id')
-      .eq('plan_id', plan.id)
-      .eq('date', today)
-      .limit(1);
-
+    const { data: existing } = await supabase.from('daily_checkins').select('id').eq('plan_id', plan.id).eq('date', today).limit(1);
     if (existing && existing.length > 0) {
       await supabase.from('daily_checkins').update({ [field]: value }).eq('id', existing[0].id);
       setCheckin((prev: any) => ({ ...prev, [field]: value }));
@@ -236,9 +262,13 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     }
   }
 
-  // Macros start at zero, accumulate from completed meals only
+  // ========== CLOSE DAY LOGIC ==========
+
   const completedMeals = todayMeals.filter(m => m.completed === true || (m.flag && m.completed !== false));
+  const skippedMeals = todayMeals.filter(m => m.completed === false);
+  const pendingMeals = todayMeals.filter(m => !m.flag && m.completed !== false && m.completed !== true);
   const registeredCount = completedMeals.length;
+
   const totalMacros = completedMeals.reduce((acc, m) => {
     if (m.macros) {
       acc.protein += m.macros.protein_g || 0;
@@ -249,23 +279,168 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     return acc;
   }, { protein: 0, carbs: 0, fat: 0, calories: 0 });
 
+  const dayScore = todayMeals.length > 0 ? Math.round(registeredCount / todayMeals.length * 100) : 0;
+
+  async function closeDay() {
+    setClosingDay(true);
+
+    // Mark all pending meals as skipped
+    for (const meal of pendingMeals) {
+      await saveMeal(meal.meal_name, {
+        planned_description: meal.planned_description || '',
+        completed: false,
+        flag: 'red',
+        feedback: 'Refeição não registrada — dia encerrado',
+        macros: { protein_g: 0, carbs_g: 0, fat_g: 0, calories: 0 },
+      });
+    }
+
+    // Mark exercise as not done if pending
+    if (todayExercise && !todayExercise.done && !todayExercise.id) {
+      await supabase.from('exercises').insert({
+        plan_id: plan.id,
+        weekly_plan_id: weeklyPlan?.id,
+        date: today,
+        planned_type: todayExercise.planned_type,
+        done: false,
+      });
+    }
+
+    // Save day_closed in checkin
+    const { data: existing } = await supabase.from('daily_checkins').select('id').eq('plan_id', plan.id).eq('date', today).limit(1);
+    if (existing && existing.length > 0) {
+      await supabase.from('daily_checkins').update({ day_closed: true }).eq('id', existing[0].id);
+    } else {
+      await supabase.from('daily_checkins').insert({ plan_id: plan.id, date: today, day_closed: true });
+    }
+
+    // Move to next day
+    const nextDay = getNextDay(today);
+    if (isDateInWeek(nextDay)) {
+      setViewingDate(nextDay);
+      setDayClosed(false);
+      setShowCloseDay(false);
+      setClosingDay(false);
+      await loadDay(nextDay);
+    } else {
+      // End of week
+      setDayClosed(true);
+      setShowCloseDay(false);
+      setClosingDay(false);
+      await loadDay(today);
+    }
+  }
+
+  // ========== UI ==========
+
   const flagColor: Record<string, string> = { green: 'bg-green-400', yellow: 'bg-amber-400', red: 'bg-red-400' };
   const flagBg: Record<string, string> = { green: 'bg-green-50', yellow: 'bg-amber-50', red: 'bg-red-50' };
   const flagText: Record<string, string> = { green: 'text-green-800', yellow: 'text-amber-800', red: 'text-red-800' };
   const flagLabel: Record<string, string> = { green: 'Verde — perfeito!', yellow: 'Amarelo — quase lá!', red: 'Vermelho — fora do plano' };
 
+  const viewDate = new Date(today + 'T12:00:00');
+  const viewDayLabel = dayLabels[dayKey];
+  const viewDateFormatted = viewDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' });
+
   return (
     <div className="p-4">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <p className="text-lg font-medium">Olá!</p>
-          <p className="text-xs text-gray-400">{dayLabels[dayKey]}, {new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</p>
+          <p className="text-lg font-medium">{isViewingToday ? 'Olá!' : isViewingFuture ? 'Amanhã' : viewDayLabel}</p>
+          <p className="text-xs text-gray-400">{viewDayLabel}, {viewDateFormatted}</p>
+          {!isViewingToday && (
+            <button onClick={() => { setViewingDate(realToday); loadDay(realToday); setDayClosed(false); }} className="text-[10px] text-teal-500 mt-0.5">← voltar para hoje</button>
+          )}
         </div>
         <div className="bg-teal-50 px-3 py-1.5 rounded-full flex items-center gap-1.5">
-          <span className="text-lg font-medium text-teal-800">{todayMeals.length > 0 ? Math.round(registeredCount / todayMeals.length * 100) : 0}</span>
+          <span className="text-lg font-medium text-teal-800">{dayScore}</span>
           <span className="text-xs text-teal-600">score</span>
         </div>
       </div>
+
+      {/* Day closed banner */}
+      {dayClosed && isViewingToday && (
+        <div className="bg-teal-50 border border-teal-200 rounded-xl p-3 mb-4 text-center">
+          <p className="text-sm text-teal-800 font-medium">Dia encerrado! ✓</p>
+          <p className="text-xs text-teal-600 mt-1">Bom descanso. Amanhã tem mais.</p>
+        </div>
+      )}
+
+      {/* End of week notice */}
+      {dayClosed && !isViewingToday && today > realToday && !isDateInWeek(getNextDay(today)) && (
+        <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 mb-4 text-center">
+          <p className="text-sm text-purple-800 font-medium">Fim da semana!</p>
+          <p className="text-xs text-purple-600 mt-1">No domingo será gerado o planejamento da próxima semana.</p>
+        </div>
+      )}
+
+      {/* CLOSE DAY MODAL */}
+      {showCloseDay && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowCloseDay(false)}>
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-medium mb-4 text-center">Encerrar o dia?</h3>
+            
+            {/* Summary */}
+            <div className="space-y-3 mb-4">
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                <span className="text-sm text-gray-600">Refeições registradas</span>
+                <span className="text-sm font-medium">{registeredCount} de {todayMeals.length}</span>
+              </div>
+              {completedMeals.length > 0 && (
+                <div className="bg-green-50 rounded-xl p-3">
+                  <p className="text-xs text-green-700 font-medium mb-1">Realizadas ({completedMeals.length})</p>
+                  {completedMeals.map((m, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <div className={`w-2 h-2 rounded-full ${flagColor[m.flag] || 'bg-green-400'}`} />
+                      <span className="text-xs text-green-800">{m.meal_name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {skippedMeals.length > 0 && (
+                <div className="bg-red-50 rounded-xl p-3">
+                  <p className="text-xs text-red-700 font-medium mb-1">Não realizadas ({skippedMeals.length})</p>
+                  {skippedMeals.map((m, i) => (
+                    <span key={i} className="text-xs text-red-600">{m.meal_name}{i < skippedMeals.length - 1 ? ', ' : ''}</span>
+                  ))}
+                </div>
+              )}
+              {pendingMeals.length > 0 && (
+                <div className="bg-amber-50 rounded-xl p-3">
+                  <p className="text-xs text-amber-700 font-medium mb-1">Sem registro ({pendingMeals.length}) — serão marcadas como não realizadas</p>
+                  {pendingMeals.map((m, i) => (
+                    <span key={i} className="text-xs text-amber-600">{m.meal_name}{i < pendingMeals.length - 1 ? ', ' : ''}</span>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                <span className="text-sm text-gray-600">Exercício</span>
+                <span className="text-sm font-medium">{todayExercise?.done ? '✓ Feito' : todayExercise ? 'Não feito' : 'Descanso'}</span>
+              </div>
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                <span className="text-sm text-gray-600">Score do dia</span>
+                <span className="text-sm font-medium text-teal-700">{dayScore}%</span>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-xs text-gray-500 font-medium mb-1">Macros consumidos</p>
+                <div className="flex justify-between text-xs text-gray-600">
+                  <span>P: {Math.round(totalMacros.protein)}g</span>
+                  <span>C: {Math.round(totalMacros.carbs)}g</span>
+                  <span>G: {Math.round(totalMacros.fat)}g</span>
+                  <span>{Math.round(totalMacros.calories)} kcal</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={closeDay} disabled={closingDay} className="flex-1 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50">
+                {closingDay ? 'Encerrando...' : 'Encerrar dia'}
+              </button>
+              <button onClick={() => setShowCloseDay(false)} className="flex-1 py-3 border border-gray-200 text-gray-500 rounded-xl text-sm">Voltar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* CONFIRMATION MODAL */}
       {confirmData && (
@@ -309,17 +484,18 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
 
       {/* Meals */}
       <div className="flex items-center justify-between mt-4 mb-2">
-        <span className="text-sm font-medium">Cardápio de hoje</span>
+        <span className="text-sm font-medium">Cardápio de {isViewingToday ? 'hoje' : viewDayLabel.toLowerCase()}</span>
         <span className="text-xs text-gray-400">{registeredCount} de {todayMeals.length}</span>
       </div>
 
       {todayMeals.map((meal, i) => {
         const isCompleted = meal.completed === true || (meal.flag && meal.completed !== false);
         const isSkipped = meal.completed === false;
+        const canEdit = !isViewingFuture && !(checkin?.day_closed);
         
         return (
           <div key={i} className="mb-2">
-            <div onClick={() => { if (!confirmData) { setExpandedMeal(expandedMeal === meal.meal_name ? null : meal.meal_name); setMealDescription(''); } }} className="flex items-center gap-2 p-3 border border-gray-100 rounded-xl cursor-pointer">
+            <div onClick={() => { if (!confirmData && canEdit) { setExpandedMeal(expandedMeal === meal.meal_name ? null : meal.meal_name); setMealDescription(''); } }} className="flex items-center gap-2 p-3 border border-gray-100 rounded-xl cursor-pointer">
               <div className={`w-2.5 h-2.5 rounded-full ${meal.flag ? flagColor[meal.flag] : 'bg-gray-200'}`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -341,7 +517,7 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
               )}
             </div>
 
-            {expandedMeal === meal.meal_name && !confirmData && (
+            {expandedMeal === meal.meal_name && !confirmData && canEdit && (
               <div className={`p-3 rounded-xl mt-1 ${isCompleted ? (flagBg[meal.flag] || 'bg-green-50') : 'bg-gray-50'}`}>
                 {isCompleted ? (
                   <div>
@@ -419,7 +595,7 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
       })}
 
       {/* Macros — start at zero, accumulate from completed meals */}
-      <p className="text-sm font-medium mt-4 mb-2">Macros de hoje</p>
+      <p className="text-sm font-medium mt-4 mb-2">Macros {isViewingToday ? 'de hoje' : ''}</p>
       {[
         { label: 'Proteína', current: Math.round(totalMacros.protein), target: plan.meal_plan_base?.protein_g || 150, color: 'bg-teal-400' },
         { label: 'Carbo', current: Math.round(totalMacros.carbs), target: plan.meal_plan_base?.carbs_g || 250, color: 'bg-amber-400' },
@@ -435,10 +611,10 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
         </div>
       ))}
 
-      {/* Exercise — fixed "Outra" button */}
+      {/* Exercise */}
       {todayExercise && (
         <>
-          <p className="text-sm font-medium mt-4 mb-2">Exercício de hoje</p>
+          <p className="text-sm font-medium mt-4 mb-2">Exercício</p>
           <div className={`p-3 rounded-xl border border-gray-100 ${todayExercise.done ? 'bg-green-50' : ''}`}>
             <div className="flex items-center gap-3">
               <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${todayExercise.done ? 'bg-green-400' : 'bg-blue-50'}`}>
@@ -446,34 +622,19 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
               </div>
               <div className="flex-1">
                 <p className="text-sm font-medium">{todayExercise.actual_type || todayExercise.planned_type}</p>
-                <p className="text-xs text-gray-400">{todayExercise.done ? 'Concluído' : todayExercise.description || 'Previsto para hoje'}</p>
+                <p className="text-xs text-gray-400">{todayExercise.done ? 'Concluído' : todayExercise.description || 'Previsto'}</p>
               </div>
-              {!todayExercise.done && (
+              {!todayExercise.done && !isViewingFuture && (
                 <div className="flex gap-1.5">
                   <button onClick={() => markExercise(true)} className="text-xs px-3 py-1.5 rounded-full bg-teal-400 text-white font-medium">Feito</button>
                   <button onClick={() => setShowOtherExercise(!showOtherExercise)} className="text-xs px-2 py-1.5 rounded-full border border-gray-200 text-blue-500">Outra</button>
                 </div>
               )}
             </div>
-
             {showOtherExercise && !todayExercise.done && (
               <div className="mt-3 flex gap-2">
-                <input
-                  type="text"
-                  value={otherExerciseText}
-                  onChange={e => setOtherExerciseText(e.target.value)}
-                  placeholder="O que você fez? Ex: corrida, yoga..."
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400"
-                  onKeyDown={e => { if (e.key === 'Enter' && otherExerciseText.trim()) markExercise(true, otherExerciseText); }}
-                  autoFocus
-                />
-                <button 
-                  onClick={() => { if (otherExerciseText.trim()) markExercise(true, otherExerciseText); }}
-                  disabled={!otherExerciseText.trim()}
-                  className="px-4 py-2 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50"
-                >
-                  OK
-                </button>
+                <input type="text" value={otherExerciseText} onChange={e => setOtherExerciseText(e.target.value)} placeholder="O que você fez? Ex: corrida, yoga..." className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400" onKeyDown={e => { if (e.key === 'Enter' && otherExerciseText.trim()) markExercise(true, otherExerciseText); }} autoFocus />
+                <button onClick={() => { if (otherExerciseText.trim()) markExercise(true, otherExerciseText); }} disabled={!otherExerciseText.trim()} className="px-4 py-2 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50">OK</button>
               </div>
             )}
           </div>
@@ -514,6 +675,16 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
           <p className="text-[10px] text-gray-400">Água (copos)</p>
         </div>
       </div>
+
+      {/* CLOSE DAY BUTTON */}
+      {!isViewingFuture && !checkin?.day_closed && todayMeals.length > 0 && (
+        <button 
+          onClick={() => setShowCloseDay(true)}
+          className="w-full mt-6 py-4 border-2 border-dashed border-gray-200 rounded-2xl text-sm text-gray-500 font-medium hover:border-teal-300 hover:text-teal-600 transition-colors"
+        >
+          Encerrar o dia
+        </button>
+      )}
     </div>
   );
 }

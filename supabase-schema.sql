@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS daily_checkins (
   energy_level INT CHECK (energy_level BETWEEN 1 AND 10),
   digestion TEXT CHECK (digestion IN ('boa', 'regular', 'ruim')),
   water_glasses INT DEFAULT 0,
+  day_closed BOOLEAN DEFAULT FALSE,
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(plan_id, date)
@@ -168,3 +169,6 @@ ALTER TABLE weekly_plans ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
 -- Novas colunas em meals
 ALTER TABLE meals ADD COLUMN IF NOT EXISTS actual_description TEXT;
 ALTER TABLE meals ADD COLUMN IF NOT EXISTS completed BOOLEAN;
+
+-- Nova coluna em daily_checkins
+ALTER TABLE daily_checkins ADD COLUMN IF NOT EXISTS day_closed BOOLEAN DEFAULT FALSE;
