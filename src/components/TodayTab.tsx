@@ -8,7 +8,14 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
   const [checkin, setCheckin] = useState<any>(null);
   const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [mealDescription, setMealDescription] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [confirmData, setConfirmData] = useState<any>(null);
+  const [showOtherExercise, setShowOtherExercise] = useState(false);
+  const [otherExerciseText, setOtherExerciseText] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const today = new Date().toISOString().split('T')[0];
   const dayNames = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
@@ -25,7 +32,7 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     const plannedMeals = weeklyPlan?.meal_plan_detailed?.[dayKey] || [];
     const mealList = plannedMeals.map((pm: any) => {
       const existing = meals?.find(m => m.meal_name === pm.meal);
-      return existing || { meal_name: pm.meal, planned_description: pm.description, macros: pm.macros, date: today, plan_id: plan.id };
+      return existing || { meal_name: pm.meal, planned_description: pm.description, macros: null, date: today, plan_id: plan.id, location: pm.location };
     });
     setTodayMeals(mealList);
 
@@ -39,45 +46,119 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     setCheckin(ci && ci.length > 0 ? ci[0] : null);
   }
 
-  async function handlePhoto(mealName: string, file: File) {
+  // Photo upload — just for record (point 17)
+  async function handlePhotoUpload(mealName: string, file: File) {
     setUploading(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = (reader.result as string).split(',')[1];
+    const fileName = `${plan.id}/${today}/${mealName.replace(/\s/g, '_')}_${Date.now()}.jpg`;
+    await supabase.storage.from('meal-photos').upload(fileName, file);
+    const { data: urlData } = supabase.storage.from('meal-photos').getPublicUrl(fileName);
+    
+    // Save photo URL to meal record
+    await supabase.from('meals').upsert({
+      plan_id: plan.id,
+      weekly_plan_id: weeklyPlan?.id,
+      date: today,
+      meal_name: mealName,
+      planned_description: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
+      photo_url: urlData.publicUrl,
+    }, { onConflict: 'plan_id,date,meal_name', ignoreDuplicates: false });
+    
+    setUploading(false);
+    loadToday();
+  }
 
-      const res = await fetch('/api/analyze-meal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: base64,
-          mealName,
-          plannedDescription: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
-          mealPlanContext: plan.meal_plan_base,
-        }),
-      });
-      const analysis = await res.json();
+  // Send meal description for AI analysis
+  async function analyzeMealDescription(mealName: string) {
+    if (!mealDescription.trim()) return;
+    setAnalyzing(true);
 
-      const fileName = `${plan.id}/${today}/${mealName.replace(/\s/g, '_')}_${Date.now()}.jpg`;
-      await supabase.storage.from('meal-photos').upload(fileName, file);
-      const { data: urlData } = supabase.storage.from('meal-photos').getPublicUrl(fileName);
+    const res = await fetch('/api/analyze-meal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: mealDescription,
+        mealName,
+        plannedDescription: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
+        mealPlanContext: plan.meal_plan_base,
+      }),
+    });
+    const analysis = await res.json();
+    
+    setConfirmData({ mealName, analysis, description: mealDescription });
+    setAnalyzing(false);
+  }
 
-      await supabase.from('meals').upsert({
-        plan_id: plan.id,
-        weekly_plan_id: weeklyPlan?.id,
-        date: today,
-        meal_name: mealName,
-        planned_description: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
-        photo_url: urlData.publicUrl,
-        ai_analysis: analysis,
-        flag: analysis.flag,
-        feedback: analysis.feedback,
-        macros: analysis.estimated_macros,
-      }, { onConflict: 'plan_id,date,meal_name', ignoreDuplicates: false });
+  // Confirm the AI analysis and save
+  async function confirmMealAnalysis() {
+    if (!confirmData) return;
+    const { mealName, analysis, description } = confirmData;
+    const existing = todayMeals.find(m => m.meal_name === mealName);
 
-      setUploading(false);
-      loadToday();
+    await supabase.from('meals').upsert({
+      plan_id: plan.id,
+      weekly_plan_id: weeklyPlan?.id,
+      date: today,
+      meal_name: mealName,
+      planned_description: existing?.planned_description || '',
+      photo_url: existing?.photo_url || null,
+      actual_description: description,
+      ai_analysis: analysis,
+      flag: analysis.flag,
+      feedback: analysis.feedback,
+      macros: analysis.estimated_macros,
+      completed: true,
+    }, { onConflict: 'plan_id,date,meal_name', ignoreDuplicates: false });
+
+    setConfirmData(null);
+    setMealDescription('');
+    setExpandedMeal(null);
+    loadToday();
+  }
+
+  // Mark meal as not done
+  async function skipMeal(mealName: string) {
+    await supabase.from('meals').upsert({
+      plan_id: plan.id,
+      weekly_plan_id: weeklyPlan?.id,
+      date: today,
+      meal_name: mealName,
+      planned_description: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
+      completed: false,
+      flag: 'red',
+      feedback: 'Refeição não realizada',
+      macros: { protein_g: 0, carbs_g: 0, fat_g: 0, calories: 0 },
+    }, { onConflict: 'plan_id,date,meal_name', ignoreDuplicates: false });
+    setExpandedMeal(null);
+    loadToday();
+  }
+
+  // Audio recording for meal description
+  function toggleMealRecording() {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+      return;
+    }
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { alert('Navegador não suporta reconhecimento de voz.'); return; }
+    const recognition = new SR();
+    recognition.lang = 'pt-BR';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    let final = mealDescription;
+    recognition.onresult = (e: any) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += (final ? ' ' : '') + e.results[i][0].transcript;
+        else interim = e.results[i][0].transcript;
+      }
+      setMealDescription(final + (interim ? ' ' + interim : ''));
     };
-    reader.readAsDataURL(file);
+    recognition.onend = () => setIsRecording(false);
+    recognition.onerror = () => setIsRecording(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsRecording(true);
   }
 
   async function markExercise(done: boolean, actualType?: string) {
@@ -90,6 +171,8 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
       done,
       has_gym_access: weeklyPlan?.routine?.[dayKey]?.gym ?? true,
     }, { onConflict: 'plan_id,date', ignoreDuplicates: false });
+    setShowOtherExercise(false);
+    setOtherExerciseText('');
     loadToday();
   }
 
@@ -99,9 +182,11 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     setCheckin(data);
   }
 
-  const registeredCount = todayMeals.filter(m => m.flag).length;
-  const totalMacros = todayMeals.reduce((acc, m) => {
-    if (m.macros) {
+  // Macros start at zero, accumulate from completed meals only (point 18)
+  const completedMeals = todayMeals.filter(m => m.completed === true || m.flag);
+  const registeredCount = completedMeals.length;
+  const totalMacros = completedMeals.reduce((acc, m) => {
+    if (m.macros && m.completed !== false) {
       acc.protein += m.macros.protein_g || 0;
       acc.carbs += m.macros.carbs_g || 0;
       acc.fat += m.macros.fat_g || 0;
@@ -123,10 +208,48 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
           <p className="text-xs text-gray-400">{dayLabels[dayKey]}, {new Date().toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}</p>
         </div>
         <div className="bg-teal-50 px-3 py-1.5 rounded-full flex items-center gap-1.5">
-          <span className="text-lg font-medium text-teal-800">{Math.round(registeredCount / Math.max(todayMeals.length, 1) * 100)}</span>
+          <span className="text-lg font-medium text-teal-800">{todayMeals.length > 0 ? Math.round(registeredCount / todayMeals.length * 100) : 0}</span>
           <span className="text-xs text-teal-600">score</span>
         </div>
       </div>
+
+      {/* CONFIRMATION MODAL */}
+      {confirmData && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full max-h-[80vh] overflow-y-auto">
+            <h3 className="text-base font-medium mb-3">Confirmar {confirmData.mealName}</h3>
+            <p className="text-sm text-gray-600 mb-2">Você descreveu:</p>
+            <p className="text-sm bg-gray-50 rounded-xl p-3 mb-3 italic">"{confirmData.description}"</p>
+            <p className="text-sm text-gray-600 mb-2">Eu entendi que você comeu:</p>
+            <div className="space-y-1 mb-3">
+              {(confirmData.analysis.identified_foods || []).map((f: string, i: number) => (
+                <span key={i} className="inline-block text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded-full mr-1 mb-1">{f}</span>
+              ))}
+            </div>
+            <div className={`rounded-xl p-3 mb-3 ${flagBg[confirmData.analysis.flag]}`}>
+              <p className={`text-sm font-medium ${flagText[confirmData.analysis.flag]}`}>{flagLabel[confirmData.analysis.flag]}</p>
+              <p className="text-xs text-gray-600 mt-1">{confirmData.analysis.feedback}</p>
+            </div>
+            <div className="grid grid-cols-4 gap-1 mb-4">
+              {[
+                { l: 'Prot', v: confirmData.analysis.estimated_macros?.protein_g || 0 },
+                { l: 'Carb', v: confirmData.analysis.estimated_macros?.carbs_g || 0 },
+                { l: 'Gord', v: confirmData.analysis.estimated_macros?.fat_g || 0 },
+                { l: 'Kcal', v: confirmData.analysis.estimated_macros?.calories || 0 },
+              ].map(m => (
+                <div key={m.l} className="bg-gray-50 rounded-lg p-2 text-center">
+                  <p className="text-sm font-medium">{Math.round(m.v)}</p>
+                  <p className="text-[10px] text-gray-400">{m.l}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={confirmMealAnalysis} className="flex-1 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium">Confirmar</button>
+              <button onClick={() => { setConfirmData(null); }} className="flex-1 py-3 border border-gray-200 text-gray-500 rounded-xl text-sm">Corrigir</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Meals */}
       <div className="flex items-center justify-between mt-4 mb-2">
@@ -136,15 +259,22 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
 
       {todayMeals.map((meal, i) => (
         <div key={i} className="mb-2">
-          <div onClick={() => setExpandedMeal(expandedMeal === meal.meal_name ? null : meal.meal_name)} className="flex items-center gap-2 p-3 border border-gray-100 rounded-xl cursor-pointer">
+          <div onClick={() => { setExpandedMeal(expandedMeal === meal.meal_name ? null : meal.meal_name); setMealDescription(''); setConfirmData(null); }} className="flex items-center gap-2 p-3 border border-gray-100 rounded-xl cursor-pointer">
             <div className={`w-2.5 h-2.5 rounded-full ${meal.flag ? flagColor[meal.flag] : 'bg-gray-200'}`} />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">{meal.meal_name}</p>
-              <p className="text-xs text-gray-400 truncate">{meal.planned_description}</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium">{meal.meal_name}</p>
+                {meal.location === 'livre' && <span className="text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full">livre</span>}
+              </div>
+              <p className="text-xs text-gray-400 truncate">{meal.actual_description || meal.planned_description}</p>
             </div>
-            {meal.flag ? (
+            {meal.flag && meal.completed !== false ? (
               <div className="w-6 h-6 rounded-full bg-green-50 flex items-center justify-center">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#639922" strokeWidth="3" strokeLinecap="round"><path d="M5 13l4 4L19 7" /></svg>
+              </div>
+            ) : meal.completed === false ? (
+              <div className="w-6 h-6 rounded-full bg-red-50 flex items-center justify-center">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
               </div>
             ) : (
               <div className="w-6 h-6 rounded-full border border-gray-200" />
@@ -152,23 +282,70 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
           </div>
 
           {expandedMeal === meal.meal_name && (
-            <div className={`p-3 rounded-xl mt-1 ${meal.flag ? flagBg[meal.flag] : 'bg-gray-50'}`}>
-              {meal.flag ? (
+            <div className={`p-3 rounded-xl mt-1 ${meal.flag && meal.completed !== false ? flagBg[meal.flag] : 'bg-gray-50'}`}>
+              {meal.flag && meal.completed !== false ? (
                 <div>
                   <p className={`text-sm font-medium ${flagText[meal.flag]}`}>{flagLabel[meal.flag]}</p>
                   <p className="text-xs text-gray-600 mt-1 leading-relaxed">{meal.feedback}</p>
+                  {meal.actual_description && <p className="text-xs text-gray-500 mt-1 italic">Descrito: "{meal.actual_description}"</p>}
                   {meal.photo_url && <img src={meal.photo_url} className="w-full h-32 object-cover rounded-lg mt-2" alt="" />}
                 </div>
               ) : (
                 <div>
                   <p className="text-sm font-medium mb-1">Registrar {meal.meal_name.toLowerCase()}</p>
-                  <p className="text-xs text-gray-500 mb-3">Plano: {meal.planned_description}. Tire uma foto do que você comeu.</p>
-                  <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
-                    if (e.target.files?.[0]) handlePhoto(meal.meal_name, e.target.files[0]);
-                  }} />
-                  <button onClick={() => fileRef.current?.click()} disabled={uploading} className="w-full py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50">
-                    {uploading ? 'Analisando...' : 'Tirar foto do prato'}
-                  </button>
+                  <p className="text-xs text-gray-500 mb-3">Plano: {meal.planned_description}</p>
+                  
+                  {/* Photo — just for record */}
+                  <div className="flex gap-2 mb-3">
+                    <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                      if (e.target.files?.[0]) handlePhotoUpload(meal.meal_name, e.target.files[0]);
+                    }} />
+                    <button onClick={() => fileRef.current?.click()} disabled={uploading} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-xl text-xs text-gray-600 disabled:opacity-50">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                      {uploading ? 'Salvando...' : meal.photo_url ? '✓ Foto salva' : 'Tirar foto'}
+                    </button>
+                    {meal.photo_url && <img src={meal.photo_url} className="w-10 h-10 rounded-lg object-cover" alt="" />}
+                  </div>
+
+                  {/* Description input (text or audio) */}
+                  <div className="flex items-end gap-2 mb-3">
+                    <button
+                      onClick={toggleMealRecording}
+                      className={`p-2 rounded-full shrink-0 ${isRecording ? 'bg-red-400 text-white animate-pulse' : 'bg-gray-100 text-gray-500'}`}
+                    >
+                      {isRecording ? (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                      ) : (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        </svg>
+                      )}
+                    </button>
+                    <textarea
+                      value={mealDescription}
+                      onChange={e => setMealDescription(e.target.value)}
+                      placeholder="Descreva o que comeu..."
+                      className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400 resize-none"
+                      rows={2}
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => analyzeMealDescription(meal.meal_name)} 
+                      disabled={!mealDescription.trim() || analyzing}
+                      className="flex-1 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50"
+                    >
+                      {analyzing ? 'Analisando...' : 'Realizada ✓'}
+                    </button>
+                    <button 
+                      onClick={() => skipMeal(meal.meal_name)}
+                      className="px-4 py-3 border border-red-200 text-red-500 rounded-xl text-sm"
+                    >
+                      Não fiz
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -176,7 +353,7 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
         </div>
       ))}
 
-      {/* Macros */}
+      {/* Macros — start at zero, accumulate from completed meals (point 18) */}
       <p className="text-sm font-medium mt-4 mb-2">Macros de hoje</p>
       {[
         { label: 'Proteína', current: Math.round(totalMacros.protein), target: plan.meal_plan_base?.protein_g || 150, color: 'bg-teal-400' },
@@ -187,31 +364,52 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
         <div key={m.label} className="flex items-center gap-1.5 mb-2">
           <span className="text-xs text-gray-400 w-12">{m.label}</span>
           <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-            <div className={`h-full ${m.color} rounded-full`} style={{ width: `${Math.min((m.current / m.target) * 100, 100)}%` }} />
+            <div className={`h-full ${m.color} rounded-full transition-all duration-500`} style={{ width: `${Math.min((m.current / m.target) * 100, 100)}%` }} />
           </div>
           <span className="text-xs text-gray-400 w-16 text-right"><b className="text-gray-700">{m.current}</b>/{m.target}{m.label === 'Calorias' ? '' : 'g'}</span>
         </div>
       ))}
 
-      {/* Exercise */}
+      {/* Exercise — fixed "Outra" button (point 19) */}
       {todayExercise && (
         <>
           <p className="text-sm font-medium mt-4 mb-2">Exercício de hoje</p>
-          <div className={`flex items-center gap-3 p-3 rounded-xl border border-gray-100 ${todayExercise.done ? 'bg-green-50' : ''}`}>
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${todayExercise.done ? 'bg-green-400' : 'bg-blue-50'}`}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={todayExercise.done ? '#fff' : '#378ADD'} strokeWidth="2" strokeLinecap="round"><path d="M6 5v14M18 5v14M6 12h12" /></svg>
+          <div className={`p-3 rounded-xl border border-gray-100 ${todayExercise.done ? 'bg-green-50' : ''}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${todayExercise.done ? 'bg-green-400' : 'bg-blue-50'}`}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={todayExercise.done ? '#fff' : '#378ADD'} strokeWidth="2" strokeLinecap="round"><path d="M6 5v14M18 5v14M6 12h12" /></svg>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium">{todayExercise.actual_type || todayExercise.planned_type}</p>
+                <p className="text-xs text-gray-400">{todayExercise.done ? 'Concluído' : todayExercise.description || 'Previsto para hoje'}</p>
+              </div>
+              {!todayExercise.done && (
+                <div className="flex gap-1.5">
+                  <button onClick={() => markExercise(true)} className="text-xs px-3 py-1.5 rounded-full bg-teal-400 text-white font-medium">Feito</button>
+                  <button onClick={() => setShowOtherExercise(!showOtherExercise)} className="text-xs px-2 py-1.5 rounded-full border border-gray-200 text-blue-500">Outra</button>
+                </div>
+              )}
             </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium">{todayExercise.actual_type || todayExercise.planned_type}</p>
-              <p className="text-xs text-gray-400">{todayExercise.done ? 'Concluído' : 'Previsto para hoje'}</p>
-            </div>
-            {!todayExercise.done && (
-              <div className="flex gap-1.5">
-                <button onClick={() => markExercise(true)} className="text-xs px-3 py-1.5 rounded-full bg-teal-400 text-white font-medium">Feito</button>
-                <button onClick={() => {
-                  const alt = prompt('O que você fez?');
-                  if (alt) markExercise(true, alt);
-                }} className="text-xs px-2 py-1.5 rounded-full border border-gray-200 text-blue-500">Outra</button>
+
+            {/* "Outra" exercise input — fixed (point 19) */}
+            {showOtherExercise && !todayExercise.done && (
+              <div className="mt-3 flex gap-2">
+                <input
+                  type="text"
+                  value={otherExerciseText}
+                  onChange={e => setOtherExerciseText(e.target.value)}
+                  placeholder="O que você fez? Ex: corrida, yoga..."
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400"
+                  onKeyDown={e => { if (e.key === 'Enter' && otherExerciseText.trim()) markExercise(true, otherExerciseText); }}
+                  autoFocus
+                />
+                <button 
+                  onClick={() => { if (otherExerciseText.trim()) markExercise(true, otherExerciseText); }}
+                  disabled={!otherExerciseText.trim()}
+                  className="px-4 py-2 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50"
+                >
+                  OK
+                </button>
               </div>
             )}
           </div>

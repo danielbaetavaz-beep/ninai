@@ -2,12 +2,13 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
+const NINA_EMAIL = 'izagiffoni@hotmail.com';
+
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
-  const [isNina, setIsNina] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -20,11 +21,12 @@ export default function Login() {
       const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
       if (signUpError) { setError(signUpError.message); setLoading(false); return; }
       if (data.user) {
+        const role = email.toLowerCase().trim() === NINA_EMAIL ? 'nutritionist' : 'patient';
         await supabase.from('profiles').insert({
           id: data.user.id,
           email,
           name,
-          role: isNina ? 'nutritionist' : 'patient',
+          role,
         });
       }
     } else {
@@ -72,18 +74,6 @@ export default function Login() {
           required
           minLength={6}
         />
-
-        {isSignUp && (
-          <label className="flex items-center gap-2 text-sm text-gray-500">
-            <input
-              type="checkbox"
-              checked={isNina}
-              onChange={e => setIsNina(e.target.checked)}
-              className="rounded"
-            />
-            Sou nutricionista
-          </label>
-        )}
 
         {error && <p className="text-red-400 text-sm">{error}</p>}
 

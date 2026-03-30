@@ -1,7 +1,7 @@
 -- Execute este SQL no Supabase SQL Editor (supabase.com > seu projeto > SQL Editor)
 
 -- Perfis de usuário
-CREATE TABLE profiles (
+CREATE TABLE IF NOT EXISTS profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT NOT NULL,
   name TEXT,
@@ -10,7 +10,7 @@ CREATE TABLE profiles (
 );
 
 -- Planos (ciclos)
-CREATE TABLE plans (
+CREATE TABLE IF NOT EXISTS plans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   patient_id UUID NOT NULL REFERENCES profiles(id),
   status TEXT NOT NULL DEFAULT 'onboarding' CHECK (status IN ('onboarding', 'pending_review', 'consultation_requested', 'approved', 'completed')),
@@ -31,7 +31,7 @@ CREATE TABLE plans (
 );
 
 -- Semanas
-CREATE TABLE weekly_plans (
+CREATE TABLE IF NOT EXISTS weekly_plans (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   plan_id UUID NOT NULL REFERENCES plans(id),
   week_number INT NOT NULL,
@@ -39,28 +39,33 @@ CREATE TABLE weekly_plans (
   routine JSONB DEFAULT '{}',
   meal_plan_detailed JSONB DEFAULT '{}',
   exercise_plan_detailed JSONB DEFAULT '{}',
+  day_dates JSONB DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'pending_nina_approval' CHECK (status IN ('pending_nina_approval', 'approved')),
   submitted_at TIMESTAMPTZ,
+  approved_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Refeições registradas
-CREATE TABLE meals (
+CREATE TABLE IF NOT EXISTS meals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   plan_id UUID NOT NULL REFERENCES plans(id),
   weekly_plan_id UUID REFERENCES weekly_plans(id),
   date DATE NOT NULL,
   meal_name TEXT NOT NULL,
   planned_description TEXT,
+  actual_description TEXT,
   photo_url TEXT,
   ai_analysis JSONB DEFAULT '{}',
   flag TEXT CHECK (flag IN ('green', 'yellow', 'red')),
   feedback TEXT,
   macros JSONB DEFAULT '{}',
+  completed BOOLEAN,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Exercícios registrados
-CREATE TABLE exercises (
+CREATE TABLE IF NOT EXISTS exercises (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   plan_id UUID NOT NULL REFERENCES plans(id),
   weekly_plan_id UUID REFERENCES weekly_plans(id),
@@ -74,7 +79,7 @@ CREATE TABLE exercises (
 );
 
 -- Check-ins diários
-CREATE TABLE daily_checkins (
+CREATE TABLE IF NOT EXISTS daily_checkins (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   plan_id UUID NOT NULL REFERENCES plans(id),
   date DATE NOT NULL,
@@ -88,7 +93,7 @@ CREATE TABLE daily_checkins (
 );
 
 -- Alertas para a Nina
-CREATE TABLE alerts (
+CREATE TABLE IF NOT EXISTS alerts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   patient_id UUID NOT NULL REFERENCES profiles(id),
   plan_id UUID REFERENCES plans(id),
@@ -147,5 +152,19 @@ CREATE POLICY "Nina sees all alerts" ON alerts FOR ALL USING (
 );
 
 -- Storage bucket para fotos
-INSERT INTO storage.buckets (id, name, public) VALUES ('meal-photos', 'meal-photos', true);
-INSERT INTO storage.buckets (id, name, public) VALUES ('exam-results', 'exam-results', true);
+INSERT INTO storage.buckets (id, name, public) VALUES ('meal-photos', 'meal-photos', true) ON CONFLICT DO NOTHING;
+INSERT INTO storage.buckets (id, name, public) VALUES ('exam-results', 'exam-results', true) ON CONFLICT DO NOTHING;
+
+-- ==========================================
+-- MIGRATION: Execute este bloco se o banco já existe
+-- para adicionar as novas colunas
+-- ==========================================
+
+-- Novas colunas em weekly_plans
+ALTER TABLE weekly_plans ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending_nina_approval';
+ALTER TABLE weekly_plans ADD COLUMN IF NOT EXISTS day_dates JSONB DEFAULT '{}';
+ALTER TABLE weekly_plans ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
+
+-- Novas colunas em meals
+ALTER TABLE meals ADD COLUMN IF NOT EXISTS actual_description TEXT;
+ALTER TABLE meals ADD COLUMN IF NOT EXISTS completed BOOLEAN;

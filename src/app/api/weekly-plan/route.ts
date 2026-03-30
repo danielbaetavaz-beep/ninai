@@ -5,10 +5,24 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(request: NextRequest) {
   try {
-    const { routine, mealPlanBase, exercisePlanBase, goals, mealNames } = await request.json();
+    const { routine, mealPlanBase, exercisePlanBase, goals, mealNames, weekStart, dayDates } = await request.json();
 
     const meals = mealNames || ['Café da manhã', 'Lanche da manhã', 'Almoço', 'Lanche da tarde', 'Jantar'];
-    const mealsExample = meals.map((m: string) => `{"meal": "${m}", "description": "...", "macros": {"protein_g": 0, "carbs_g": 0, "fat_g": 0, "calories": 0}}`).join(', ');
+    
+    // Build per-day meal instructions
+    const dayInstructions = Object.entries(routine).map(([day, info]: [string, any]) => {
+      const date = info.date || dayDates?.[day] || '';
+      const activeMeals = Object.entries(info.meals || {})
+        .filter(([_, loc]) => loc !== 'off')
+        .map(([name, loc]) => `${name} (${loc})`)
+        .join(', ');
+      const inactiveMeals = Object.entries(info.meals || {})
+        .filter(([_, loc]) => loc === 'off')
+        .map(([name]) => name)
+        .join(', ');
+      
+      return `${day} (${date}): Refeições ativas: ${activeMeals || 'nenhuma'}${inactiveMeals ? `. SEM: ${inactiveMeals}` : ''}. Academia: ${info.gym ? 'sim' : 'não'}`;
+    }).join('\n');
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -17,8 +31,12 @@ export async function POST(request: NextRequest) {
         role: 'user',
         content: `Você é a ninAI. Gere o plano detalhado da semana.
 
-ROTINA DA SEMANA:
-${JSON.stringify(routine, null, 2)}
+SEMANA COMEÇA EM: ${weekStart}
+DATAS DE CADA DIA:
+${JSON.stringify(dayDates, null, 2)}
+
+ROTINA DA SEMANA (com datas e detalhes de cada dia):
+${dayInstructions}
 
 PLANO ALIMENTAR BASE:
 ${JSON.stringify(mealPlanBase, null, 2)}
@@ -29,28 +47,30 @@ ${JSON.stringify(exercisePlanBase, null, 2)}
 METAS:
 ${JSON.stringify(goals, null, 2)}
 
-REFEIÇÕES DO DIA (use exatamente estes nomes): ${meals.join(', ')}
+IMPORTANTE:
+- Cada dia deve ter APENAS as refeições marcadas como ativas (casa, fora, ou livre)
+- Refeições marcadas como "off" NÃO devem aparecer no plano desse dia
+- Refeições "livre" devem ter uma sugestão leve mas com nota "refeição livre — sem restrições"
+- Refeições "casa" devem detalhar ingredientes e preparo
+- Refeições "fora" devem dar orientações (priorize X, evite Y)
+- Dias sem academia: sugira exercícios alternativos (corrida, caminhada, alongamento)
+- Dias de descanso: marque como "descanso"
 
 Retorne APENAS um JSON (sem markdown, sem backticks):
 {
   "meal_plan": {
-    "segunda": [${mealsExample}],
-    "terca": [...], "quarta": [...], "quinta": [...], "sexta": [...], "sabado": [...], "domingo": [...]
+    "segunda": [{"meal": "Café da manhã", "description": "...", "macros": {"protein_g": 0, "carbs_g": 0, "fat_g": 0, "calories": 0}, "location": "casa"}],
+    "terca": [...],
+    ...
   },
   "exercise_plan": {
-    "segunda": {"type": "musculação", "description": "Treino de peito e tríceps", "has_gym": true},
-    "terca": {"type": "corrida", "description": "30 min corrida leve", "has_gym": false},
+    "segunda": {"type": "musculação", "description": "Treino de peito e tríceps"},
+    "terca": {"type": "corrida", "description": "30 min corrida leve"},
     ...
   }
 }
 
-REGRAS:
-- Cada dia DEVE ter exatamente ${meals.length} refeições: ${meals.join(', ')}
-- Refeições em casa: detalhe ingredientes e preparo simples
-- Refeições fora: dê orientações (priorize X, evite Y, peça Z)
-- Dias sem academia: sugira alternativas (corrida, alongamento, exercício em casa)
-- Dias de descanso: marque como "descanso"
-- Tudo em português`
+Tudo em português.`
       }],
     });
 
