@@ -61,17 +61,14 @@ export default function Dashboard() {
       <div className="flex flex-col" style={{ minHeight: '100dvh' }}>
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <h1 className="text-lg font-medium">nin<span className="text-teal-400">AI</span></h1>
-          {profile && <UserMenu profile={profile} />}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">{profile?.name || profile?.email || ''}</span>
+            <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/'; }} className="text-xs text-red-400 touch-manipulation">Sair</button>
+          </div>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
           <p className="text-gray-500 text-sm mb-8">Bem-vindo! Você ainda não tem um plano ativo.</p>
-          <button onClick={async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) {
-              const { data: newPlan } = await supabase.from('plans').insert({ patient_id: session.user.id, status: 'onboarding' }).select().single();
-              if (newPlan) window.location.href = `/onboarding?plan=${newPlan.id}`;
-            }
-          }} className="px-8 py-4 bg-teal-400 text-white rounded-2xl text-base font-medium active:bg-teal-500 touch-manipulation">Criar novo plano</button>
+          <CreatePlanButton />
         </div>
       </div>
     );
@@ -343,6 +340,52 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
         {generating ? 'Gerando seu plano semanal...' : 'Gerar plano da semana'}
       </button>
       <p className="text-xs text-gray-400 text-center mt-2">Após gerar, o plano será enviado para a Nina aprovar</p>
+    </div>
+  );
+}
+
+function CreatePlanButton() {
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleCreate() {
+    setCreating(true);
+    setError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setError('Sessão expirada. Faça login novamente.');
+        setCreating(false);
+        return;
+      }
+      const { data: newPlan, error: insertError } = await supabase.from('plans').insert({ patient_id: session.user.id, status: 'onboarding' }).select().single();
+      if (insertError) {
+        console.error('Insert error:', insertError);
+        setError('Erro ao criar plano: ' + insertError.message);
+        setCreating(false);
+        return;
+      }
+      if (newPlan) {
+        window.location.href = `/onboarding?plan=${newPlan.id}`;
+      }
+    } catch (err: any) {
+      console.error('Create plan error:', err);
+      setError('Erro inesperado: ' + err.message);
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center">
+      <button 
+        onClick={handleCreate} 
+        disabled={creating}
+        className="px-8 py-4 bg-teal-400 text-white rounded-2xl text-base font-medium active:bg-teal-500 touch-manipulation disabled:opacity-50"
+        style={{ WebkitTapHighlightColor: 'transparent' }}
+      >
+        {creating ? 'Criando...' : 'Criar novo plano'}
+      </button>
+      {error && <p className="text-red-400 text-xs mt-3 max-w-xs">{error}</p>}
     </div>
   );
 }
