@@ -9,7 +9,6 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
 
   const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
   const dayLabels: Record<string, string> = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' };
-  const todayIdx = (new Date().getDay() + 6) % 7;
 
   useEffect(() => { if (weeklyPlan) loadWeekData(); }, [weeklyPlan]);
 
@@ -25,8 +24,10 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
   const mealPlan = weeklyPlan?.meal_plan_detailed || {};
   const exPlan = weeklyPlan?.exercise_plan_detailed || {};
 
+  const todayStr = new Date().toISOString().split('T')[0];
+
   const dayData = days.map((d, i) => {
-    const date = new Date(weeklyPlan?.week_start);
+    const date = new Date(weeklyPlan?.week_start + 'T12:00:00');
     date.setDate(date.getDate() + i);
     const ds = date.toISOString().split('T')[0];
     const dayMeals = meals.filter(m => m.date === ds);
@@ -36,9 +37,9 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
     const yellow = dayMeals.filter(m => m.flag === 'yellow').length;
     const red = dayMeals.filter(m => m.flag === 'red').length;
     const total = dayMeals.length;
-    const isPast = i < todayIdx;
-    const isToday = i === todayIdx;
-    const isFuture = i > todayIdx;
+    const isPast = ds < todayStr;
+    const isToday = ds === todayStr;
+    const isFuture = ds > todayStr;
 
     let dominantFlag = 'none';
     if (total > 0) {
@@ -103,7 +104,8 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
 
               <span className={`text-sm font-medium flex-1 text-left ${dd.isToday ? 'text-teal-700' : dd.isFuture ? 'text-gray-400' : ''}`}>
                 {dayLabels[dd.day]}
-                {dd.isToday && <span className="text-xs text-teal-500 ml-2">hoje</span>}
+                <span className="text-[10px] text-gray-400 ml-1.5">{dd.date ? new Date(dd.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}</span>
+                {dd.isToday && <span className="text-xs text-teal-500 ml-1">hoje</span>}
               </span>
 
               {dd.plannedEx && dd.plannedEx.type !== 'descanso' && (

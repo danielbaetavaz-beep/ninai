@@ -162,11 +162,12 @@ export default function Dashboard() {
   );
 }
 
-// Helper: get Monday of the current week
+// Helper: get Monday of the current week (week = Mon-Sun)
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day; // Monday
+  const day = d.getDay(); // 0=Sun, 1=Mon...6=Sat
+  // Sunday (0) belongs to the week that started on the previous Monday
+  const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
@@ -188,12 +189,11 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
   const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
   const dayLabels: Record<string, string> = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' };
 
-  // Calculate real dates
+  // Calculate real dates — week is Mon-Sun
   const today = new Date();
-  const todayDayOfWeek = today.getDay(); // 0=Sun, 1=Mon, ...
   
-  // If today is Sunday (0), start next week. Otherwise start from today's Monday
-  const weekStart = getWeekStart(todayDayOfWeek === 0 ? new Date(today.getTime() + 86400000) : today);
+  // getWeekStart already handles Sunday correctly (returns previous Monday)
+  const weekStart = getWeekStart(today);
   const dayDates = getDayDates(weekStart);
   
   // Determine which days to plan (from today to Sunday)
