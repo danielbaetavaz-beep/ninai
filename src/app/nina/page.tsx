@@ -64,9 +64,10 @@ export default function NinaPanel() {
     loadData();
   }
 
-  async function approveWeeklyPlan(weeklyPlanId: string, updatedMealPlan?: any) {
+  async function approveWeeklyPlan(weeklyPlanId: string, updatedMealPlan?: any, updatedExercisePlan?: any) {
     const updateData: any = { status: 'approved', approved_at: new Date().toISOString() };
     if (updatedMealPlan) updateData.meal_plan_detailed = updatedMealPlan;
+    if (updatedExercisePlan) updateData.exercise_plan_detailed = updatedExercisePlan;
     await supabase.from('weekly_plans').update(updateData).eq('id', weeklyPlanId);
     setSelectedWeeklyPlan(null);
     loadData();
@@ -266,6 +267,48 @@ function PlanReview({ plan, onApprove, onRequestConsultation, onUploadExam, onBa
           </>
         )}
 
+        {editablePlan.exercise_plan_base && (
+          <>
+            <p className="text-sm font-medium mt-4 mb-2">Plano de exercícios (editável)</p>
+            <div className="bg-blue-50 rounded-xl p-3 mb-2 space-y-2">
+              <div>
+                <label className="text-[10px] text-gray-400">Frequência semanal</label>
+                <select value={editablePlan.exercise_plan_base.weekly_frequency || 3} onChange={e => setEditablePlan((prev: any) => ({ ...prev, exercise_plan_base: { ...prev.exercise_plan_base, weekly_frequency: Number(e.target.value) } }))} className="w-full text-sm border border-gray-200 rounded-lg px-2 py-1 bg-white">
+                  {[1,2,3,4,5,6,7].map(n => <option key={n} value={n}>{n}x por semana</option>)}
+                </select>
+              </div>
+              {(editablePlan.exercise_plan_base.activities || []).map((a: any, idx: number) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <input 
+                    value={a.type || ''} 
+                    onChange={e => {
+                      const updated = { ...editablePlan };
+                      updated.exercise_plan_base = { ...updated.exercise_plan_base };
+                      updated.exercise_plan_base.activities = [...updated.exercise_plan_base.activities];
+                      updated.exercise_plan_base.activities[idx] = { ...a, type: e.target.value };
+                      setEditablePlan(updated);
+                    }} 
+                    className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1 bg-white" 
+                    placeholder="Tipo"
+                  />
+                  <input 
+                    value={a.frequency || ''} 
+                    onChange={e => {
+                      const updated = { ...editablePlan };
+                      updated.exercise_plan_base = { ...updated.exercise_plan_base };
+                      updated.exercise_plan_base.activities = [...updated.exercise_plan_base.activities];
+                      updated.exercise_plan_base.activities[idx] = { ...a, frequency: e.target.value };
+                      setEditablePlan(updated);
+                    }} 
+                    className="w-28 text-sm border border-gray-200 rounded-lg px-2 py-1 bg-white" 
+                    placeholder="Frequência"
+                  />
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         {plan.scientific_rationale && (
           <>
             <p className="text-sm font-medium mt-4 mb-2">Racional científico</p>
@@ -321,13 +364,15 @@ function PlanReview({ plan, onApprove, onRequestConsultation, onUploadExam, onBa
 }
 
 // Weekly plan review for Nina — point 16
-function WeeklyPlanReview({ weeklyPlan, onApprove, onBack }: { weeklyPlan: any; onApprove: (id: string, mealPlan?: any) => void; onBack: () => void }) {
+function WeeklyPlanReview({ weeklyPlan, onApprove, onBack }: { weeklyPlan: any; onApprove: (id: string, mealPlan?: any, exercisePlan?: any) => void; onBack: () => void }) {
   const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
   const dayLabels: Record<string, string> = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' };
   
   const [mealPlan, setMealPlan] = useState<any>(weeklyPlan.meal_plan_detailed || {});
+  const [exercisePlan, setExercisePlan] = useState<any>(weeklyPlan.exercise_plan_detailed || {});
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [editingMeal, setEditingMeal] = useState<string | null>(null);
+  const [editingExercise, setEditingExercise] = useState<string | null>(null);
 
   const dayDates = weeklyPlan.day_dates || weeklyPlan.routine || {};
   const patientName = (weeklyPlan as any).plans?.profiles?.name || 'Paciente';
@@ -337,6 +382,12 @@ function WeeklyPlanReview({ weeklyPlan, onApprove, onBack }: { weeklyPlan: any; 
     updated[day] = [...(updated[day] || [])];
     updated[day][mealIndex] = { ...updated[day][mealIndex], description: newDesc };
     setMealPlan(updated);
+  }
+
+  function updateExercise(day: string, field: string, value: string) {
+    const updated = { ...exercisePlan };
+    updated[day] = { ...updated[day], [field]: value };
+    setExercisePlan(updated);
   }
 
   return (
@@ -410,8 +461,33 @@ function WeeklyPlanReview({ weeklyPlan, onApprove, onBack }: { weeklyPlan: any; 
 
                   {exPlan && (
                     <div className="bg-blue-50 rounded-xl p-3">
-                      <p className="text-xs font-medium text-blue-700">Exercício: {exPlan.type}</p>
-                      <p className="text-xs text-blue-600">{exPlan.description}</p>
+                      {editingExercise === day ? (
+                        <div className="space-y-2" onClick={e => e.stopPropagation()}>
+                          <div>
+                            <label className="text-[10px] text-blue-500">Tipo de exercício</label>
+                            <input 
+                              value={exercisePlan[day]?.type || exPlan.type || ''} 
+                              onChange={e => updateExercise(day, 'type', e.target.value)}
+                              className="w-full text-xs border border-blue-200 rounded-lg px-2 py-1.5 bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-blue-500">Descrição</label>
+                            <textarea 
+                              value={exercisePlan[day]?.description || exPlan.description || ''} 
+                              onChange={e => updateExercise(day, 'description', e.target.value)}
+                              className="w-full text-xs border border-blue-200 rounded-lg px-2 py-1.5 bg-white resize-none"
+                              rows={2}
+                            />
+                          </div>
+                          <button onClick={() => setEditingExercise(null)} className="text-[10px] text-blue-600 font-medium">✓ OK</button>
+                        </div>
+                      ) : (
+                        <div className="cursor-pointer" onClick={() => setEditingExercise(day)}>
+                          <p className="text-xs font-medium text-blue-700">Exercício: {exercisePlan[day]?.type || exPlan.type} <span className="text-blue-300 ml-1">✎</span></p>
+                          <p className="text-xs text-blue-600">{exercisePlan[day]?.description || exPlan.description}</p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -421,7 +497,7 @@ function WeeklyPlanReview({ weeklyPlan, onApprove, onBack }: { weeklyPlan: any; 
         })}
 
         <div className="mt-6 space-y-2">
-          <button onClick={() => onApprove(weeklyPlan.id, mealPlan)} className="w-full py-3 bg-teal-400 text-white rounded-xl text-sm font-medium">
+          <button onClick={() => onApprove(weeklyPlan.id, mealPlan, exercisePlan)} className="w-full py-3 bg-teal-400 text-white rounded-xl text-sm font-medium">
             Aprovar cardápio semanal
           </button>
           <button onClick={onBack} className="w-full py-3 border border-gray-200 text-gray-500 rounded-xl text-sm">Voltar</button>

@@ -14,6 +14,7 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
   const [confirmData, setConfirmData] = useState<any>(null);
   const [showOtherExercise, setShowOtherExercise] = useState(false);
   const [otherExerciseText, setOtherExerciseText] = useState('');
+  const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -46,25 +47,49 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     setCheckin(ci && ci.length > 0 ? ci[0] : null);
   }
 
-  // Photo upload — just for record (point 17)
+  // Save or update a meal record
+  async function saveMeal(mealName: string, data: any) {
+    // Check if meal record already exists
+    const { data: existing } = await supabase
+      .from('meals')
+      .select('id')
+      .eq('plan_id', plan.id)
+      .eq('date', today)
+      .eq('meal_name', mealName)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      // Update existing
+      const { error } = await supabase.from('meals').update(data).eq('id', existing[0].id);
+      if (error) console.error('Error updating meal:', error);
+    } else {
+      // Insert new
+      const { error } = await supabase.from('meals').insert({
+        plan_id: plan.id,
+        weekly_plan_id: weeklyPlan?.id,
+        date: today,
+        meal_name: mealName,
+        ...data,
+      });
+      if (error) console.error('Error inserting meal:', error);
+    }
+  }
+
+  // Photo upload — just for record
   async function handlePhotoUpload(mealName: string, file: File) {
     setUploading(true);
     const fileName = `${plan.id}/${today}/${mealName.replace(/\s/g, '_')}_${Date.now()}.jpg`;
     await supabase.storage.from('meal-photos').upload(fileName, file);
     const { data: urlData } = supabase.storage.from('meal-photos').getPublicUrl(fileName);
     
-    // Save photo URL to meal record
-    await supabase.from('meals').upsert({
-      plan_id: plan.id,
-      weekly_plan_id: weeklyPlan?.id,
-      date: today,
-      meal_name: mealName,
-      planned_description: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
+    const planned = todayMeals.find(m => m.meal_name === mealName);
+    await saveMeal(mealName, {
+      planned_description: planned?.planned_description || '',
       photo_url: urlData.publicUrl,
-    }, { onConflict: 'plan_id,date,meal_name', ignoreDuplicates: false });
+    });
     
     setUploading(false);
-    loadToday();
+    await loadToday();
   }
 
   // Send meal description for AI analysis
@@ -72,33 +97,35 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     if (!mealDescription.trim()) return;
     setAnalyzing(true);
 
-    const res = await fetch('/api/analyze-meal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        description: mealDescription,
-        mealName,
-        plannedDescription: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
-        mealPlanContext: plan.meal_plan_base,
-      }),
-    });
-    const analysis = await res.json();
-    
-    setConfirmData({ mealName, analysis, description: mealDescription });
+    try {
+      const res = await fetch('/api/analyze-meal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: mealDescription,
+          mealName,
+          plannedDescription: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
+          mealPlanContext: plan.meal_plan_base,
+        }),
+      });
+      const analysis = await res.json();
+      setConfirmData({ mealName, analysis, description: mealDescription });
+    } catch (err) {
+      console.error('Analysis error:', err);
+      alert('Erro ao analisar. Tente novamente.');
+    }
     setAnalyzing(false);
   }
 
   // Confirm the AI analysis and save
   async function confirmMealAnalysis() {
-    if (!confirmData) return;
+    if (!confirmData || saving) return;
+    setSaving(true);
+    
     const { mealName, analysis, description } = confirmData;
     const existing = todayMeals.find(m => m.meal_name === mealName);
 
-    await supabase.from('meals').upsert({
-      plan_id: plan.id,
-      weekly_plan_id: weeklyPlan?.id,
-      date: today,
-      meal_name: mealName,
+    await saveMeal(mealName, {
       planned_description: existing?.planned_description || '',
       photo_url: existing?.photo_url || null,
       actual_description: description,
@@ -107,29 +134,27 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
       feedback: analysis.feedback,
       macros: analysis.estimated_macros,
       completed: true,
-    }, { onConflict: 'plan_id,date,meal_name', ignoreDuplicates: false });
+    });
 
     setConfirmData(null);
     setMealDescription('');
     setExpandedMeal(null);
-    loadToday();
+    setSaving(false);
+    await loadToday();
   }
 
   // Mark meal as not done
   async function skipMeal(mealName: string) {
-    await supabase.from('meals').upsert({
-      plan_id: plan.id,
-      weekly_plan_id: weeklyPlan?.id,
-      date: today,
-      meal_name: mealName,
-      planned_description: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '',
+    const planned = todayMeals.find(m => m.meal_name === mealName);
+    await saveMeal(mealName, {
+      planned_description: planned?.planned_description || '',
       completed: false,
       flag: 'red',
       feedback: 'Refeição não realizada',
       macros: { protein_g: 0, carbs_g: 0, fat_g: 0, calories: 0 },
-    }, { onConflict: 'plan_id,date,meal_name', ignoreDuplicates: false });
+    });
     setExpandedMeal(null);
-    loadToday();
+    await loadToday();
   }
 
   // Audio recording for meal description
@@ -161,32 +186,61 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
     setIsRecording(true);
   }
 
+  // Save or update exercise
   async function markExercise(done: boolean, actualType?: string) {
-    await supabase.from('exercises').upsert({
-      plan_id: plan.id,
-      weekly_plan_id: weeklyPlan?.id,
-      date: today,
+    const { data: existing } = await supabase
+      .from('exercises')
+      .select('id')
+      .eq('plan_id', plan.id)
+      .eq('date', today)
+      .limit(1);
+
+    const exerciseData = {
       planned_type: todayExercise?.planned_type,
       actual_type: actualType || todayExercise?.planned_type,
       done,
       has_gym_access: weeklyPlan?.routine?.[dayKey]?.gym ?? true,
-    }, { onConflict: 'plan_id,date', ignoreDuplicates: false });
+    };
+
+    if (existing && existing.length > 0) {
+      await supabase.from('exercises').update(exerciseData).eq('id', existing[0].id);
+    } else {
+      await supabase.from('exercises').insert({
+        plan_id: plan.id,
+        weekly_plan_id: weeklyPlan?.id,
+        date: today,
+        ...exerciseData,
+      });
+    }
+
     setShowOtherExercise(false);
     setOtherExerciseText('');
-    loadToday();
+    await loadToday();
   }
 
   async function saveCheckin(field: string, value: any) {
-    const data = { ...checkin, plan_id: plan.id, date: today, [field]: value };
-    await supabase.from('daily_checkins').upsert(data, { onConflict: 'plan_id,date', ignoreDuplicates: false });
-    setCheckin(data);
+    const { data: existing } = await supabase
+      .from('daily_checkins')
+      .select('id')
+      .eq('plan_id', plan.id)
+      .eq('date', today)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      await supabase.from('daily_checkins').update({ [field]: value }).eq('id', existing[0].id);
+      setCheckin((prev: any) => ({ ...prev, [field]: value }));
+    } else {
+      const newCheckin = { plan_id: plan.id, date: today, [field]: value };
+      const { data: inserted } = await supabase.from('daily_checkins').insert(newCheckin).select().single();
+      setCheckin(inserted);
+    }
   }
 
-  // Macros start at zero, accumulate from completed meals only (point 18)
-  const completedMeals = todayMeals.filter(m => m.completed === true || m.flag);
+  // Macros start at zero, accumulate from completed meals only
+  const completedMeals = todayMeals.filter(m => m.completed === true || (m.flag && m.completed !== false));
   const registeredCount = completedMeals.length;
   const totalMacros = completedMeals.reduce((acc, m) => {
-    if (m.macros && m.completed !== false) {
+    if (m.macros) {
       acc.protein += m.macros.protein_g || 0;
       acc.carbs += m.macros.carbs_g || 0;
       acc.fat += m.macros.fat_g || 0;
@@ -215,19 +269,19 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
 
       {/* CONFIRMATION MODAL */}
       {confirmData && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full max-h-[80vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <h3 className="text-base font-medium mb-3">Confirmar {confirmData.mealName}</h3>
             <p className="text-sm text-gray-600 mb-2">Você descreveu:</p>
-            <p className="text-sm bg-gray-50 rounded-xl p-3 mb-3 italic">"{confirmData.description}"</p>
+            <p className="text-sm bg-gray-50 rounded-xl p-3 mb-3 italic">&ldquo;{confirmData.description}&rdquo;</p>
             <p className="text-sm text-gray-600 mb-2">Eu entendi que você comeu:</p>
             <div className="space-y-1 mb-3">
               {(confirmData.analysis.identified_foods || []).map((f: string, i: number) => (
                 <span key={i} className="inline-block text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded-full mr-1 mb-1">{f}</span>
               ))}
             </div>
-            <div className={`rounded-xl p-3 mb-3 ${flagBg[confirmData.analysis.flag]}`}>
-              <p className={`text-sm font-medium ${flagText[confirmData.analysis.flag]}`}>{flagLabel[confirmData.analysis.flag]}</p>
+            <div className={`rounded-xl p-3 mb-3 ${flagBg[confirmData.analysis.flag] || 'bg-gray-50'}`}>
+              <p className={`text-sm font-medium ${flagText[confirmData.analysis.flag] || ''}`}>{flagLabel[confirmData.analysis.flag] || confirmData.analysis.flag}</p>
               <p className="text-xs text-gray-600 mt-1">{confirmData.analysis.feedback}</p>
             </div>
             <div className="grid grid-cols-4 gap-1 mb-4">
@@ -244,7 +298,9 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
               ))}
             </div>
             <div className="flex gap-2">
-              <button onClick={confirmMealAnalysis} className="flex-1 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium">Confirmar</button>
+              <button onClick={confirmMealAnalysis} disabled={saving} className="flex-1 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50">
+                {saving ? 'Salvando...' : 'Confirmar'}
+              </button>
               <button onClick={() => { setConfirmData(null); }} className="flex-1 py-3 border border-gray-200 text-gray-500 rounded-xl text-sm">Corrigir</button>
             </div>
           </div>
@@ -257,103 +313,112 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
         <span className="text-xs text-gray-400">{registeredCount} de {todayMeals.length}</span>
       </div>
 
-      {todayMeals.map((meal, i) => (
-        <div key={i} className="mb-2">
-          <div onClick={() => { setExpandedMeal(expandedMeal === meal.meal_name ? null : meal.meal_name); setMealDescription(''); setConfirmData(null); }} className="flex items-center gap-2 p-3 border border-gray-100 rounded-xl cursor-pointer">
-            <div className={`w-2.5 h-2.5 rounded-full ${meal.flag ? flagColor[meal.flag] : 'bg-gray-200'}`} />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-medium">{meal.meal_name}</p>
-                {meal.location === 'livre' && <span className="text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full">livre</span>}
+      {todayMeals.map((meal, i) => {
+        const isCompleted = meal.completed === true || (meal.flag && meal.completed !== false);
+        const isSkipped = meal.completed === false;
+        
+        return (
+          <div key={i} className="mb-2">
+            <div onClick={() => { if (!confirmData) { setExpandedMeal(expandedMeal === meal.meal_name ? null : meal.meal_name); setMealDescription(''); } }} className="flex items-center gap-2 p-3 border border-gray-100 rounded-xl cursor-pointer">
+              <div className={`w-2.5 h-2.5 rounded-full ${meal.flag ? flagColor[meal.flag] : 'bg-gray-200'}`} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-medium">{meal.meal_name}</p>
+                  {meal.location === 'livre' && <span className="text-[10px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full">livre</span>}
+                </div>
+                <p className="text-xs text-gray-400 truncate">{meal.actual_description || meal.planned_description}</p>
               </div>
-              <p className="text-xs text-gray-400 truncate">{meal.actual_description || meal.planned_description}</p>
-            </div>
-            {meal.flag && meal.completed !== false ? (
-              <div className="w-6 h-6 rounded-full bg-green-50 flex items-center justify-center">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#639922" strokeWidth="3" strokeLinecap="round"><path d="M5 13l4 4L19 7" /></svg>
-              </div>
-            ) : meal.completed === false ? (
-              <div className="w-6 h-6 rounded-full bg-red-50 flex items-center justify-center">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
-              </div>
-            ) : (
-              <div className="w-6 h-6 rounded-full border border-gray-200" />
-            )}
-          </div>
-
-          {expandedMeal === meal.meal_name && (
-            <div className={`p-3 rounded-xl mt-1 ${meal.flag && meal.completed !== false ? flagBg[meal.flag] : 'bg-gray-50'}`}>
-              {meal.flag && meal.completed !== false ? (
-                <div>
-                  <p className={`text-sm font-medium ${flagText[meal.flag]}`}>{flagLabel[meal.flag]}</p>
-                  <p className="text-xs text-gray-600 mt-1 leading-relaxed">{meal.feedback}</p>
-                  {meal.actual_description && <p className="text-xs text-gray-500 mt-1 italic">Descrito: "{meal.actual_description}"</p>}
-                  {meal.photo_url && <img src={meal.photo_url} className="w-full h-32 object-cover rounded-lg mt-2" alt="" />}
+              {isCompleted ? (
+                <div className="w-6 h-6 rounded-full bg-green-50 flex items-center justify-center">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#639922" strokeWidth="3" strokeLinecap="round"><path d="M5 13l4 4L19 7" /></svg>
+                </div>
+              ) : isSkipped ? (
+                <div className="w-6 h-6 rounded-full bg-red-50 flex items-center justify-center">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
                 </div>
               ) : (
-                <div>
-                  <p className="text-sm font-medium mb-1">Registrar {meal.meal_name.toLowerCase()}</p>
-                  <p className="text-xs text-gray-500 mb-3">Plano: {meal.planned_description}</p>
-                  
-                  {/* Photo — just for record */}
-                  <div className="flex gap-2 mb-3">
-                    <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
-                      if (e.target.files?.[0]) handlePhotoUpload(meal.meal_name, e.target.files[0]);
-                    }} />
-                    <button onClick={() => fileRef.current?.click()} disabled={uploading} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-xl text-xs text-gray-600 disabled:opacity-50">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                      {uploading ? 'Salvando...' : meal.photo_url ? '✓ Foto salva' : 'Tirar foto'}
-                    </button>
-                    {meal.photo_url && <img src={meal.photo_url} className="w-10 h-10 rounded-lg object-cover" alt="" />}
-                  </div>
-
-                  {/* Description input (text or audio) */}
-                  <div className="flex items-end gap-2 mb-3">
-                    <button
-                      onClick={toggleMealRecording}
-                      className={`p-2 rounded-full shrink-0 ${isRecording ? 'bg-red-400 text-white animate-pulse' : 'bg-gray-100 text-gray-500'}`}
-                    >
-                      {isRecording ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                        </svg>
-                      )}
-                    </button>
-                    <textarea
-                      value={mealDescription}
-                      onChange={e => setMealDescription(e.target.value)}
-                      placeholder="Descreva o que comeu..."
-                      className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400 resize-none"
-                      rows={2}
-                    />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => analyzeMealDescription(meal.meal_name)} 
-                      disabled={!mealDescription.trim() || analyzing}
-                      className="flex-1 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50"
-                    >
-                      {analyzing ? 'Analisando...' : 'Realizada ✓'}
-                    </button>
-                    <button 
-                      onClick={() => skipMeal(meal.meal_name)}
-                      className="px-4 py-3 border border-red-200 text-red-500 rounded-xl text-sm"
-                    >
-                      Não fiz
-                    </button>
-                  </div>
-                </div>
+                <div className="w-6 h-6 rounded-full border border-gray-200" />
               )}
             </div>
-          )}
-        </div>
-      ))}
 
-      {/* Macros — start at zero, accumulate from completed meals (point 18) */}
+            {expandedMeal === meal.meal_name && !confirmData && (
+              <div className={`p-3 rounded-xl mt-1 ${isCompleted ? (flagBg[meal.flag] || 'bg-green-50') : 'bg-gray-50'}`}>
+                {isCompleted ? (
+                  <div>
+                    <p className={`text-sm font-medium ${flagText[meal.flag] || ''}`}>{flagLabel[meal.flag] || ''}</p>
+                    <p className="text-xs text-gray-600 mt-1 leading-relaxed">{meal.feedback}</p>
+                    {meal.actual_description && <p className="text-xs text-gray-500 mt-1 italic">Descrito: &ldquo;{meal.actual_description}&rdquo;</p>}
+                    {meal.photo_url && <img src={meal.photo_url} className="w-full h-32 object-cover rounded-lg mt-2" alt="" />}
+                  </div>
+                ) : isSkipped ? (
+                  <div>
+                    <p className="text-sm font-medium text-red-700">Refeição não realizada</p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm font-medium mb-1">Registrar {meal.meal_name.toLowerCase()}</p>
+                    <p className="text-xs text-gray-500 mb-3">Plano: {meal.planned_description}</p>
+                    
+                    {/* Photo — just for record */}
+                    <div className="flex gap-2 mb-3">
+                      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => {
+                        if (e.target.files?.[0]) handlePhotoUpload(meal.meal_name, e.target.files[0]);
+                      }} />
+                      <button onClick={() => fileRef.current?.click()} disabled={uploading} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-xl text-xs text-gray-600 disabled:opacity-50">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        {uploading ? 'Salvando...' : meal.photo_url ? '✓ Foto salva' : 'Tirar foto'}
+                      </button>
+                      {meal.photo_url && <img src={meal.photo_url} className="w-10 h-10 rounded-lg object-cover" alt="" />}
+                    </div>
+
+                    {/* Description input (text or audio) */}
+                    <div className="flex items-end gap-2 mb-3">
+                      <button
+                        onClick={toggleMealRecording}
+                        className={`p-2 rounded-full shrink-0 ${isRecording ? 'bg-red-400 text-white animate-pulse' : 'bg-gray-100 text-gray-500'}`}
+                      >
+                        {isRecording ? (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                          </svg>
+                        )}
+                      </button>
+                      <textarea
+                        value={mealDescription}
+                        onChange={e => setMealDescription(e.target.value)}
+                        placeholder="Descreva o que comeu..."
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400 resize-none"
+                        rows={2}
+                      />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => analyzeMealDescription(meal.meal_name)} 
+                        disabled={!mealDescription.trim() || analyzing}
+                        className="flex-1 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50"
+                      >
+                        {analyzing ? 'Analisando...' : 'Realizada ✓'}
+                      </button>
+                      <button 
+                        onClick={() => skipMeal(meal.meal_name)}
+                        className="px-4 py-3 border border-red-200 text-red-500 rounded-xl text-sm"
+                      >
+                        Não fiz
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* Macros — start at zero, accumulate from completed meals */}
       <p className="text-sm font-medium mt-4 mb-2">Macros de hoje</p>
       {[
         { label: 'Proteína', current: Math.round(totalMacros.protein), target: plan.meal_plan_base?.protein_g || 150, color: 'bg-teal-400' },
@@ -370,7 +435,7 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
         </div>
       ))}
 
-      {/* Exercise — fixed "Outra" button (point 19) */}
+      {/* Exercise — fixed "Outra" button */}
       {todayExercise && (
         <>
           <p className="text-sm font-medium mt-4 mb-2">Exercício de hoje</p>
@@ -391,7 +456,6 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
               )}
             </div>
 
-            {/* "Outra" exercise input — fixed (point 19) */}
             {showOtherExercise && !todayExercise.done && (
               <div className="mt-3 flex gap-2">
                 <input
