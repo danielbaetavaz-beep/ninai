@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Login from './login/page';
 
@@ -8,6 +9,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
   const [plan, setPlan] = useState<any>(null);
+  const [redirecting, setRedirecting] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -33,19 +36,28 @@ export default function Home() {
     setLoading(false);
   }
 
-  if (loading) return <div className="flex items-center justify-center min-h-screen"><div className="text-gray-400">Carregando...</div></div>;
+  // Handle redirects in useEffect, not during render
+  useEffect(() => {
+    if (loading || !session || redirecting) return;
+
+    if (profile?.role === 'nutritionist') {
+      setRedirecting(true);
+      router.push('/nina');
+      return;
+    }
+
+    if (!plan || plan.status === 'onboarding') {
+      setRedirecting(true);
+      router.push(plan ? `/onboarding?plan=${plan.id}` : '/dashboard');
+      return;
+    }
+
+    setRedirecting(true);
+    router.push('/dashboard');
+  }, [loading, session, profile, plan, redirecting, router]);
+
+  if (loading || redirecting) return <div className="flex items-center justify-center" style={{ minHeight: '100dvh' }}><div className="text-gray-400">Carregando...</div></div>;
   if (!session) return <Login />;
 
-  if (profile?.role === 'nutritionist') {
-    window.location.href = '/nina';
-    return null;
-  }
-
-  if (!plan || plan.status === 'onboarding') {
-    window.location.href = plan ? `/onboarding?plan=${plan.id}` : '/dashboard';
-    return null;
-  }
-
-  window.location.href = '/dashboard';
-  return null;
+  return <div className="flex items-center justify-center" style={{ minHeight: '100dvh' }}><div className="text-gray-400">Carregando...</div></div>;
 }

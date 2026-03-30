@@ -58,7 +58,7 @@ export default function Dashboard() {
 
   if (!plan) {
     return (
-      <div className="flex flex-col min-h-screen">
+      <div className="flex flex-col" style={{ minHeight: '100dvh' }}>
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <h1 className="text-lg font-medium">nin<span className="text-teal-400">AI</span></h1>
           {profile && <UserMenu profile={profile} />}
@@ -71,7 +71,7 @@ export default function Dashboard() {
               const { data: newPlan } = await supabase.from('plans').insert({ patient_id: session.user.id, status: 'onboarding' }).select().single();
               if (newPlan) window.location.href = `/onboarding?plan=${newPlan.id}`;
             }
-          }} className="px-8 py-4 bg-teal-400 text-white rounded-2xl text-base font-medium">Criar novo plano</button>
+          }} className="px-8 py-4 bg-teal-400 text-white rounded-2xl text-base font-medium active:bg-teal-500 touch-manipulation">Criar novo plano</button>
         </div>
       </div>
     );
