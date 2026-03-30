@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getLocalToday, toLocalDateStr, getWeekStartDate, getDayDates as getDayDatesUtil } from '@/lib/dates';
 import UserMenu from '@/components/UserMenu';
 import TodayTab from '@/components/TodayTab';
 import WeekTab from '@/components/WeekTab';
@@ -39,8 +40,9 @@ export default function Dashboard() {
 
     if (currentPlan.status === 'approved') {
       const today = new Date();
-      const weekStart = getWeekStart(today);
-      const { data: wp } = await supabase.from('weekly_plans').select('*').eq('plan_id', currentPlan.id).gte('week_start', weekStart.toISOString().split('T')[0]).order('created_at', { ascending: false }).limit(1);
+      const weekStart = getWeekStartDate(today);
+      const weekStartStr = toLocalDateStr(weekStart);
+      const { data: wp } = await supabase.from('weekly_plans').select('*').eq('plan_id', currentPlan.id).gte('week_start', weekStartStr).order('created_at', { ascending: false }).limit(1);
       if (wp && wp.length > 0) {
         // Only show weekly plan if approved by Nina
         if (wp[0].status === 'approved') {
@@ -162,28 +164,7 @@ export default function Dashboard() {
   );
 }
 
-// Helper: get Monday of the current week (week = Mon-Sun)
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getDay(); // 0=Sun, 1=Mon...6=Sat
-  // Sunday (0) belongs to the week that started on the previous Monday
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-// Helper: get real dates for each day from a start date
-function getDayDates(startDate: Date): Record<string, string> {
-  const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
-  const result: Record<string, string> = {};
-  days.forEach((day, i) => {
-    const d = new Date(startDate);
-    d.setDate(startDate.getDate() + i);
-    result[day] = d.toISOString().split('T')[0];
-  });
-  return result;
-}
+// Helpers are now imported from @/lib/dates
 
 function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () => void }) {
   const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
@@ -192,12 +173,11 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
   // Calculate real dates — week is Mon-Sun
   const today = new Date();
   
-  // getWeekStart already handles Sunday correctly (returns previous Monday)
-  const weekStart = getWeekStart(today);
-  const dayDates = getDayDates(weekStart);
+  const weekStart = getWeekStartDate(today);
+  const dayDates = getDayDatesUtil(weekStart);
   
   // Determine which days to plan (from today to Sunday)
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = getLocalToday();
   const activeDays = days.filter(d => dayDates[d] >= todayStr);
 
   const mealsPerDay = Math.max(plan.meal_plan_base?.meals_per_day || 5, 3);
@@ -251,7 +231,7 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
         exercisePlanBase: plan.exercise_plan_base, 
         goals: plan.goals, 
         mealNames,
-        weekStart: weekStart.toISOString().split('T')[0],
+        weekStart: toLocalDateStr(weekStart),
         dayDates,
       }),
     });
@@ -262,7 +242,7 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
 
     // Insert with pending status — needs Nina approval (point 16)
     await supabase.from('weekly_plans').insert({
-      plan_id: plan.id, week_number: nextWeek, week_start: weekStart.toISOString().split('T')[0],
+      plan_id: plan.id, week_number: nextWeek, week_start: toLocalDateStr(weekStart),
       routine: routineWithDates, meal_plan_detailed: weekPlan.meal_plan || {}, exercise_plan_detailed: weekPlan.exercise_plan || {},
       submitted_at: new Date().toISOString(),
       status: 'pending_nina_approval',

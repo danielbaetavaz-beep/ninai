@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getLocalToday, getDayKey as getDayKeyUtil, getNextDay as getNextDayUtil, toLocalDateStr } from '@/lib/dates';
 
 export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: any }) {
   const [todayMeals, setTodayMeals] = useState<any[]>([]);
@@ -18,25 +19,22 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
   const [showCloseDay, setShowCloseDay] = useState(false);
   const [closingDay, setClosingDay] = useState(false);
   const [dayClosed, setDayClosed] = useState(false);
-  const [viewingDate, setViewingDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [viewingDate, setViewingDate] = useState<string>(getLocalToday());
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  const realToday = new Date().toISOString().split('T')[0];
+  const realToday = getLocalToday();
   const dayNames = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
   const dayLabels: Record<string, string> = { domingo: 'Domingo', segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado' };
 
   // Get day key for a given date string
   function getDayKey(dateStr: string) {
-    const d = new Date(dateStr + 'T12:00:00');
-    return dayNames[d.getDay()];
+    return getDayKeyUtil(dateStr);
   }
 
   // Get next day date string
   function getNextDay(dateStr: string) {
-    const d = new Date(dateStr + 'T12:00:00');
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0];
+    return getNextDayUtil(dateStr);
   }
 
   // Check if a date is within the weekly plan range

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getLocalToday, toLocalDateStr } from '@/lib/dates';
 
 export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: any }) {
   const [meals, setMeals] = useState<any[]>([]);
@@ -24,12 +25,12 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
   const mealPlan = weeklyPlan?.meal_plan_detailed || {};
   const exPlan = weeklyPlan?.exercise_plan_detailed || {};
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalToday();
 
   const dayData = days.map((d, i) => {
     const date = new Date(weeklyPlan?.week_start + 'T12:00:00');
     date.setDate(date.getDate() + i);
-    const ds = date.toISOString().split('T')[0];
+    const ds = toLocalDateStr(date);
     const dayMeals = meals.filter(m => m.date === ds);
     const dayEx = exercises.find(e => e.date === ds);
     const planned = mealPlan[d] || [];
