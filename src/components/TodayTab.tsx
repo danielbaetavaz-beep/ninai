@@ -39,12 +39,9 @@ export default function TodayTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: 
 
   // Check if a date is within the weekly plan range
   function isDateInWeek(dateStr: string) {
-    if (!weeklyPlan?.week_start) return false;
-    const ws = new Date(weeklyPlan.week_start + 'T00:00:00');
-    const we = new Date(ws);
-    we.setDate(we.getDate() + 6);
-    const d = new Date(dateStr + 'T00:00:00');
-    return d >= ws && d <= we;
+    if (!weeklyPlan?.day_dates) return false;
+    const dates = Object.values(weeklyPlan.day_dates) as string[];
+    return dates.includes(dateStr);
   }
 
   const today = viewingDate;

@@ -39,10 +39,9 @@ export default function Dashboard() {
     if (currentPlan.status === 'onboarding') { window.location.href = `/onboarding?plan=${currentPlan.id}`; return; }
 
     if (currentPlan.status === 'approved') {
-      const today = new Date();
-      const weekStart = getWeekStartDate(today);
-      const weekStartStr = toLocalDateStr(weekStart);
-      const { data: wp } = await supabase.from('weekly_plans').select('*').eq('plan_id', currentPlan.id).gte('week_start', weekStartStr).order('created_at', { ascending: false }).limit(1);
+      const todayStr = getLocalToday();
+      // Find weekly plan where today is within the plan period
+      const { data: wp } = await supabase.from('weekly_plans').select('*').eq('plan_id', currentPlan.id).lte('week_start', todayStr).order('week_start', { ascending: false }).limit(1);
       if (wp && wp.length > 0) {
         // Only show weekly plan if approved by Nina
         if (wp[0].status === 'approved') {
@@ -167,18 +166,34 @@ export default function Dashboard() {
 // Helpers are now imported from @/lib/dates
 
 function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () => void }) {
-  const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
-  const dayLabels: Record<string, string> = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' };
+  const dayLabels: Record<string, string> = { domingo: 'Domingo', segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado' };
+  const dayKeysFromJS = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
 
-  // Calculate real dates — week is Mon-Sun
+  // Build plan from TODAY through next Sunday
   const today = new Date();
-  
-  const weekStart = getWeekStartDate(today);
-  const dayDates = getDayDatesUtil(weekStart);
-  
-  // Determine which days to plan (from today to Sunday)
   const todayStr = getLocalToday();
-  const activeDays = days.filter(d => dayDates[d] >= todayStr);
+  
+  // Calculate days from today to next Sunday (inclusive)
+  const plannedDays: { key: string; date: string; dateObj: Date }[] = [];
+  const d = new Date(today);
+  // Always include at least today + go until next Sunday
+  do {
+    const dateStr = toLocalDateStr(d);
+    const dayKey = dayKeysFromJS[d.getDay()];
+    plannedDays.push({ key: dayKey, date: dateStr, dateObj: new Date(d) });
+    d.setDate(d.getDate() + 1);
+  } while (d.getDay() !== 1 || plannedDays.length < 2); 
+  // Stop when we hit Monday (start of next week) — but always at least 2 days
+
+  // The weekStart is today
+  const weekStartStr = todayStr;
+
+  // Build dayDates map
+  const dayDates: Record<string, string> = {};
+  plannedDays.forEach(pd => {
+    // If same dayKey appears twice (e.g. plan starts Sunday, next Sunday), use first occurrence
+    if (!dayDates[pd.key]) dayDates[pd.key] = pd.date;
+  });
 
   const mealsPerDay = Math.max(plan.meal_plan_base?.meals_per_day || 5, 3);
   const defaultMealNames = plan.meal_plan_base?.meal_names || ['Café da manhã', 'Lanche da manhã', 'Almoço', 'Lanche da tarde', 'Jantar', 'Ceia'];
@@ -186,53 +201,54 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
 
   const [routine, setRoutine] = useState<any>(() => {
     const r: any = {};
-    days.forEach(d => {
-      r[d] = { meals: {}, gym: true };
-      mealNames.forEach((m: string) => { r[d].meals[m] = 'casa'; });
+    plannedDays.forEach(pd => {
+      r[pd.date] = { key: pd.key, meals: {} as Record<string, string>, gym: true };
+      mealNames.forEach((m: string) => { r[pd.date].meals[m] = 'casa'; });
     });
     return r;
   });
   const [generating, setGenerating] = useState(false);
 
   // Toggle a meal between casa/fora/livre
-  function cycleMealLocation(day: string, meal: string) {
+  function cycleMealLocation(dateStr: string, meal: string) {
     setRoutine((prev: any) => {
-      const current = prev[day].meals[meal];
+      const current = prev[dateStr].meals[meal];
       const next = current === 'casa' ? 'fora' : current === 'fora' ? 'livre' : 'casa';
-      return { ...prev, [day]: { ...prev[day], meals: { ...prev[day].meals, [meal]: next } } };
+      return { ...prev, [dateStr]: { ...prev[dateStr], meals: { ...prev[dateStr].meals, [meal]: next } } };
     });
   }
 
-  // Remove a meal from a specific day
-  function toggleMealActive(day: string, meal: string) {
+  function toggleMealActive(dateStr: string, meal: string) {
     setRoutine((prev: any) => {
-      const current = prev[day].meals[meal];
+      const current = prev[dateStr].meals[meal];
       if (current === 'off') {
-        return { ...prev, [day]: { ...prev[day], meals: { ...prev[day].meals, [meal]: 'casa' } } };
+        return { ...prev, [dateStr]: { ...prev[dateStr], meals: { ...prev[dateStr].meals, [meal]: 'casa' } } };
       }
-      return { ...prev, [day]: { ...prev[day], meals: { ...prev[day].meals, [meal]: 'off' } } };
+      return { ...prev, [dateStr]: { ...prev[dateStr], meals: { ...prev[dateStr].meals, [meal]: 'off' } } };
     });
   }
 
   async function generatePlan() {
     setGenerating(true);
     
-    // Only send active days with their real dates
-    const routineWithDates: any = {};
-    days.forEach(d => {
-      routineWithDates[d] = { ...routine[d], date: dayDates[d] };
+    // Build routine keyed by day name for the API, with dates
+    const routineByDay: any = {};
+    const dayDatesForApi: Record<string, string> = {};
+    plannedDays.forEach(pd => {
+      routineByDay[pd.key] = { ...routine[pd.date], date: pd.date };
+      dayDatesForApi[pd.key] = pd.date;
     });
 
     const res = await fetch('/api/weekly-plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        routine: routineWithDates, 
+        routine: routineByDay, 
         mealPlanBase: plan.meal_plan_base, 
         exercisePlanBase: plan.exercise_plan_base, 
         goals: plan.goals, 
         mealNames,
-        weekStart: toLocalDateStr(weekStart),
-        dayDates,
+        weekStart: weekStartStr,
+        dayDates: dayDatesForApi,
       }),
     });
     const weekPlan = await res.json();
@@ -240,16 +256,14 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
     const { data: existingWeeks } = await supabase.from('weekly_plans').select('week_number').eq('plan_id', plan.id).order('week_number', { ascending: false }).limit(1);
     const nextWeek = (existingWeeks && existingWeeks.length > 0) ? existingWeeks[0].week_number + 1 : 1;
 
-    // Insert with pending status — needs Nina approval (point 16)
     await supabase.from('weekly_plans').insert({
-      plan_id: plan.id, week_number: nextWeek, week_start: toLocalDateStr(weekStart),
-      routine: routineWithDates, meal_plan_detailed: weekPlan.meal_plan || {}, exercise_plan_detailed: weekPlan.exercise_plan || {},
+      plan_id: plan.id, week_number: nextWeek, week_start: weekStartStr,
+      routine: routineByDay, meal_plan_detailed: weekPlan.meal_plan || {}, exercise_plan_detailed: weekPlan.exercise_plan || {},
       submitted_at: new Date().toISOString(),
       status: 'pending_nina_approval',
-      day_dates: dayDates,
+      day_dates: dayDatesForApi,
     });
 
-    // Alert Nina about new weekly plan
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       await supabase.from('alerts').insert({
@@ -272,44 +286,45 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
   return (
     <div className="p-4 overflow-y-auto">
       <h2 className="text-lg font-medium mb-1">Planeje sua semana</h2>
-      <p className="text-gray-400 text-sm mb-1">Plano de {plan.duration_months} meses — {mealsPerDay} refeições/dia</p>
+      <p className="text-gray-400 text-sm mb-1">De {new Date(plannedDays[0].date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} até {new Date(plannedDays[plannedDays.length - 1].date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} — {mealsPerDay} refeições/dia</p>
       <p className="text-gray-400 text-xs mb-1">Toque na refeição para alternar: Casa → Fora → Livre</p>
-      <p className="text-gray-400 text-xs mb-4">Segure para desativar/reativar uma refeição do dia</p>
+      <p className="text-gray-400 text-xs mb-4">Use ✕ para desativar uma refeição do dia</p>
 
-      {days.map(day => {
-        const isActive = activeDays.includes(day);
-        const dateStr = dayDates[day];
-        const dateObj = new Date(dateStr + 'T12:00:00');
-        const dateLabel = dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+      {plannedDays.map(pd => {
+        const dayRoutine = routine[pd.date];
+        if (!dayRoutine) return null;
+        const dateLabel = pd.dateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+        const isToday = pd.date === todayStr;
         
         return (
-          <div key={day} className={`mb-3 rounded-xl p-3 ${isActive ? 'bg-gray-50' : 'bg-gray-50/50 opacity-50'}`}>
+          <div key={pd.date} className={`mb-3 rounded-xl p-3 ${isToday ? 'bg-teal-50/50 border border-teal-200' : 'bg-gray-50'}`}>
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">{dayLabels[day]}</span>
+                <span className="text-sm font-medium">{dayLabels[pd.key]}</span>
                 <span className="text-xs text-gray-400 bg-white px-2 py-0.5 rounded-full">{dateLabel}</span>
+                {isToday && <span className="text-xs text-teal-500">hoje</span>}
               </div>
               <label className="flex items-center gap-2 text-xs text-gray-500">
-                <input type="checkbox" checked={routine[day].gym} onChange={() => setRoutine((prev: any) => ({ ...prev, [day]: { ...prev[day], gym: !prev[day].gym } }))} className="rounded" />
+                <input type="checkbox" checked={dayRoutine.gym} onChange={() => setRoutine((prev: any) => ({ ...prev, [pd.date]: { ...prev[pd.date], gym: !prev[pd.date].gym } }))} className="rounded" />
                 Academia
               </label>
             </div>
             <div className="space-y-1">
               {mealNames.map((meal: string) => {
-                const loc = routine[day].meals[meal] || 'casa';
+                const loc = dayRoutine.meals[meal] || 'casa';
                 const style = mealLocationStyle[loc] || mealLocationStyle.casa;
                 return (
                   <div key={meal} className="flex items-center justify-between">
                     <span className={`text-xs ${loc === 'off' ? 'text-gray-300 line-through' : 'text-gray-500'}`}>{meal}</span>
                     <div className="flex items-center gap-1">
                       <button 
-                        onClick={() => cycleMealLocation(day, meal)}
+                        onClick={() => cycleMealLocation(pd.date, meal)}
                         className={`text-xs px-3 py-1 rounded-full ${style.bg}`}
                       >
                         {style.label}
                       </button>
                       <button
-                        onClick={() => toggleMealActive(day, meal)}
+                        onClick={() => toggleMealActive(pd.date, meal)}
                         className="text-[10px] px-1.5 py-1 rounded text-gray-300 hover:text-gray-500"
                         title={loc === 'off' ? 'Reativar' : 'Desativar'}
                       >

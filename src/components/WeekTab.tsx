@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getLocalToday, toLocalDateStr } from '@/lib/dates';
+import { getLocalToday } from '@/lib/dates';
 
 export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: any }) {
   const [meals, setMeals] = useState<any[]>([]);
@@ -11,13 +11,20 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
   const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
   const dayLabels: Record<string, string> = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' };
 
+  // Use day_dates from weeklyPlan if available, to get the actual days in this plan
+  const wpDayDates = weeklyPlan?.day_dates || {};
+  const activeDays = days.filter(d => wpDayDates[d]);
+
   useEffect(() => { if (weeklyPlan) loadWeekData(); }, [weeklyPlan]);
 
   async function loadWeekData() {
-    const ws = weeklyPlan.week_start;
-    const we = new Date(ws); we.setDate(we.getDate() + 6);
-    const { data: m } = await supabase.from('meals').select('*').eq('plan_id', plan.id).gte('date', ws).lte('date', we.toISOString().split('T')[0]);
-    const { data: e } = await supabase.from('exercises').select('*').eq('plan_id', plan.id).gte('date', ws).lte('date', we.toISOString().split('T')[0]);
+    // Get date range from day_dates
+    const dates = Object.values(wpDayDates) as string[];
+    if (dates.length === 0) return;
+    const minDate = dates.sort()[0];
+    const maxDate = dates.sort()[dates.length - 1];
+    const { data: m } = await supabase.from('meals').select('*').eq('plan_id', plan.id).gte('date', minDate).lte('date', maxDate);
+    const { data: e } = await supabase.from('exercises').select('*').eq('plan_id', plan.id).gte('date', minDate).lte('date', maxDate);
     setMeals(m || []);
     setExercises(e || []);
   }
@@ -27,10 +34,8 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
 
   const todayStr = getLocalToday();
 
-  const dayData = days.map((d, i) => {
-    const date = new Date(weeklyPlan?.week_start + 'T12:00:00');
-    date.setDate(date.getDate() + i);
-    const ds = toLocalDateStr(date);
+  const dayData = activeDays.map((d) => {
+    const ds = wpDayDates[d] || '';
     const dayMeals = meals.filter(m => m.date === ds);
     const dayEx = exercises.find(e => e.date === ds);
     const planned = mealPlan[d] || [];
@@ -56,7 +61,7 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
   const flagDot: Record<string, string> = { green: 'bg-green-400', yellow: 'bg-amber-400', red: 'bg-red-400', none: 'bg-gray-200' };
 
   const exDone = exercises.filter(e => e.done).length;
-  const exTotal = days.filter(d => exPlan[d] && exPlan[d].type !== 'descanso').length;
+  const exTotal = activeDays.filter(d => exPlan[d] && exPlan[d].type !== 'descanso').length;
   const totalGreen = dayData.reduce((s, d) => s + d.green, 0);
   const totalMeals = dayData.reduce((s, d) => s + d.total, 0);
   const greenPct = totalMeals > 0 ? Math.round((totalGreen / totalMeals) * 100) : 0;
@@ -65,7 +70,9 @@ export default function WeekTab({ plan, weeklyPlan }: { plan: any; weeklyPlan: a
     <div className="p-4">
       <div className="flex items-center justify-between mb-4">
         <p className="text-lg font-medium">Semana {weeklyPlan?.week_number || 1}</p>
-        <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full">{weeklyPlan?.week_start}</span>
+        <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full">
+          {activeDays.length > 0 ? `${new Date(wpDayDates[activeDays[0]] + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} a ${new Date(wpDayDates[activeDays[activeDays.length - 1]] + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}` : weeklyPlan?.week_start}
+        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-2 mb-4">
