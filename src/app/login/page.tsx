@@ -18,20 +18,34 @@ export default function Login() {
     setLoading(true);
 
     if (isSignUp) {
-      const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+      const { data, error: signUpError } = await supabase.auth.signUp({ email, password, options: { data: { name } } });
       if (signUpError) { setError(signUpError.message); setLoading(false); return; }
       if (data.user) {
         const role = email.toLowerCase().trim() === NINA_EMAIL ? 'nutritionist' : 'patient';
-        await supabase.from('profiles').insert({
+        await supabase.from('profiles').upsert({
           id: data.user.id,
           email,
           name,
           role,
-        });
+        }, { onConflict: 'id' });
       }
     } else {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
       if (signInError) { setError(signInError.message); setLoading(false); return; }
+      
+      // Ensure profile exists on login too (in case it failed during signup)
+      if (signInData.user) {
+        const { data: existingProfile } = await supabase.from('profiles').select('id').eq('id', signInData.user.id).single();
+        if (!existingProfile) {
+          const role = email.toLowerCase().trim() === NINA_EMAIL ? 'nutritionist' : 'patient';
+          await supabase.from('profiles').upsert({
+            id: signInData.user.id,
+            email,
+            name: email.split('@')[0],
+            role,
+          }, { onConflict: 'id' });
+        }
+      }
     }
     setLoading(false);
     window.location.href = '/';

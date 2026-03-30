@@ -347,35 +347,35 @@ function WeeklyRoutineSetup({ plan, onComplete }: { plan: any; onComplete: () =>
 function CreatePlanButton() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
-  const [debug, setDebug] = useState('');
 
   async function handleCreate() {
     setCreating(true);
     setError('');
-    setDebug('Iniciando...');
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      setDebug(`Sessão: ${session ? 'OK - ' + session.user.id : 'NENHUMA'}`);
-      
       if (!session) {
         setError('Sessão expirada. Faça login novamente.');
         setCreating(false);
         return;
       }
 
-      // First check if profile exists
-      const { data: profile, error: profileError } = await supabase.from('profiles').select('id').eq('id', session.user.id).single();
-      setDebug(prev => prev + ` | Profile: ${profile ? 'OK' : 'NÃO ENCONTRADO'} ${profileError ? '(' + profileError.message + ')' : ''}`);
-
-      // If no profile, create one
+      // Ensure profile exists (may have failed during signup due to RLS)
+      const { data: profile } = await supabase.from('profiles').select('id').eq('id', session.user.id).single();
+      
       if (!profile) {
-        const { error: createProfileError } = await supabase.from('profiles').insert({
+        // Try to create profile — use upsert to avoid conflicts
+        const { error: profileErr } = await supabase.from('profiles').upsert({
           id: session.user.id,
           email: session.user.email || '',
-          name: session.user.email?.split('@')[0] || 'Usuário',
+          name: session.user.user_metadata?.name || session.user.email?.split('@')[0] || 'Usuário',
           role: 'patient',
-        });
-        setDebug(prev => prev + ` | Criou profile: ${createProfileError ? 'ERRO ' + createProfileError.message : 'OK'}`);
+        }, { onConflict: 'id' });
+        
+        if (profileErr) {
+          setError('Erro ao criar perfil: ' + profileErr.message);
+          setCreating(false);
+          return;
+        }
       }
 
       const { data: newPlan, error: insertError } = await supabase.from('plans').insert({ 
@@ -383,21 +383,16 @@ function CreatePlanButton() {
         status: 'onboarding' 
       }).select().single();
       
-      setDebug(prev => prev + ` | Insert plan: ${newPlan ? 'OK ' + newPlan.id : 'ERRO'} ${insertError ? insertError.message : ''}`);
-      
       if (insertError) {
         setError('Erro ao criar plano: ' + insertError.message);
         setCreating(false);
         return;
       }
       if (newPlan) {
-        setDebug(prev => prev + ' | Redirecionando...');
         window.location.href = `/onboarding?plan=${newPlan.id}`;
       }
     } catch (err: any) {
-      console.error('Create plan error:', err);
       setError('Erro: ' + err.message);
-      setDebug(prev => prev + ` | CATCH: ${err.message}`);
       setCreating(false);
     }
   }
@@ -413,7 +408,6 @@ function CreatePlanButton() {
         {creating ? 'Criando...' : 'Criar novo plano'}
       </button>
       {error && <p className="text-red-400 text-xs mt-3 max-w-xs text-center">{error}</p>}
-      {debug && <p className="text-gray-400 text-[10px] mt-2 max-w-xs text-center break-all">{debug}</p>}
     </div>
   );
 }
