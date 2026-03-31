@@ -15,9 +15,12 @@ export default function NinaPanel() {
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const [teachingSession, setTeachingSession] = useState<any>(null);
   const [tab, setTab] = useState<'dashboard' | 'patients' | 'materials' | 'chat'>('dashboard');
+  const [unreadByPlan, setUnreadByPlan] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadData(); }, []);
+  // Poll for new messages every 10 seconds
+  useEffect(() => { const i = setInterval(loadUnread, 10000); return () => clearInterval(i); }, [patients]);
 
   async function loadData() {
     const { data: { session } } = await supabase.auth.getSession();
@@ -65,6 +68,8 @@ export default function NinaPanel() {
       setPatientStats(stats);
     }
     setLoading(false);
+    // Load unread after patients are set
+    setTimeout(loadUnread, 100);
   }
 
   async function markAlertRead(id: string) {
@@ -72,9 +77,19 @@ export default function NinaPanel() {
     setAlerts(prev => prev.filter(a => a.id !== id));
   }
 
+  async function loadUnread() {
+    if (!patients || patients.length === 0) return;
+    const counts: Record<string, number> = {};
+    for (const p of patients) {
+      const { data } = await supabase.from('direct_messages').select('id').eq('plan_id', p.id).eq('sender_role', 'patient').eq('read', false);
+      if (data && data.length > 0) counts[p.id] = data.length;
+    }
+    setUnreadByPlan(counts);
+  }
+
   if (loading) return <div className="flex items-center justify-center min-h-screen"><p className="text-gray-400">Carregando...</p></div>;
   if (teachingSession) return <TeachingSession session={teachingSession} onDone={() => { setTeachingSession(null); loadData(); }} />;
-  if (selectedChat) return <DirectChat plan={selectedChat} profile={profile} onBack={() => { setSelectedChat(null); }} />;
+  if (selectedChat) return <DirectChat plan={selectedChat} profile={profile} onBack={() => { setSelectedChat(null); loadUnread(); }} />;
   if (selectedPlan) return <UnifiedPlanReview plan={selectedPlan} knowledge={knowledge} onBack={() => { setSelectedPlan(null); loadData(); }} />;
 
   const activePlans = patients.filter(p => p.status === 'approved');
@@ -94,9 +109,15 @@ export default function NinaPanel() {
           { id: 'patients' as const, label: 'Pacientes' },
           { id: 'chat' as const, label: 'Mensagens' },
           { id: 'materials' as const, label: 'Materiais' },
-        ].map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`px-3 py-2.5 text-xs font-medium border-b-2 ${tab === t.id ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>{t.label}</button>
-        ))}
+        ].map(t => {
+          const totalUnread = t.id === 'chat' ? Object.values(unreadByPlan).reduce((s, n) => s + n, 0) : 0;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`px-3 py-2.5 text-xs font-medium border-b-2 relative ${tab === t.id ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>
+              {t.label}
+              {totalUnread > 0 && <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">{totalUnread}</span>}
+            </button>
+          );
+        })}
       </div>
 
       {/* DASHBOARD TAB */}
@@ -182,13 +203,22 @@ export default function NinaPanel() {
       {tab === 'chat' && (
         <div className="p-4">
           <p className="text-sm font-medium mb-3">Mensagens diretas</p>
-          {patients.filter(p => p.status === 'approved').map(p => (
-            <div key={p.id} onClick={() => setSelectedChat(p)} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl mb-2 cursor-pointer">
-              <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-medium">{(p as any).profiles?.name?.[0] || '?'}</div>
-              <div className="flex-1"><p className="text-sm font-medium">{(p as any).profiles?.name || 'Paciente'}</p></div>
-              <span className="text-xs text-gray-400">→</span>
-            </div>
-          ))}
+          {patients.filter(p => p.status === 'approved').map(p => {
+            const unread = unreadByPlan[p.id] || 0;
+            return (
+              <div key={p.id} onClick={() => { setSelectedChat(p); }} className={`flex items-center gap-3 p-3 rounded-xl mb-2 cursor-pointer ${unread > 0 ? 'border-2 border-purple-200 bg-purple-50/30' : 'border border-gray-100'}`}>
+                <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-medium relative">
+                  {(p as any).profiles?.name?.[0] || '?'}
+                  {unread > 0 && <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">{unread}</span>}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">{(p as any).profiles?.name || 'Paciente'}</p>
+                  {unread > 0 && <p className="text-xs text-purple-600">{unread} mensagem{unread > 1 ? 'ns' : ''} nova{unread > 1 ? 's' : ''}</p>}
+                </div>
+                <span className="text-xs text-gray-400">→</span>
+              </div>
+            );
+          })}
           {patients.filter(p => p.status === 'approved').length === 0 && <p className="text-xs text-gray-400 text-center py-4">Nenhum paciente ativo para conversar</p>}
         </div>
       )}
