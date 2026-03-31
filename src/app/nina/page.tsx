@@ -287,15 +287,43 @@ function TeachingSession({ session, onDone }: { session: any; onDone: () => void
   const [saving, setSaving] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const [materialContent, setMaterialContent] = useState<string>('');
+
   useEffect(() => { startSession(); }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   async function startSession() {
     setLoading(true);
     const materialNames = session.materials.map((m: any) => m.name);
-    const materialContext = session.materials.map((m: any) => `[${m.name}]: ${m.description || 'Sem descrição'}`).join('\n');
 
-    const res = await fetch('/api/process-material', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ materialSummaries: materialContext, materialNames }) });
+    // Extract text from each PDF
+    let fullContent = '';
+    for (const mat of session.materials) {
+      if (mat.file_url) {
+        try {
+          const extractRes = await fetch('/api/extract-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileUrl: mat.file_url, fileName: mat.name }),
+          });
+          const extractData = await extractRes.json();
+          if (extractData.text) {
+            fullContent += `\n\n=== ${mat.name} ===\n${extractData.text}`;
+          } else {
+            fullContent += `\n\n=== ${mat.name} ===\n${mat.description || 'Conteúdo não extraído'}`;
+          }
+        } catch {
+          fullContent += `\n\n=== ${mat.name} ===\n${mat.description || 'Erro ao extrair'}`;
+        }
+      }
+    }
+    setMaterialContent(fullContent);
+
+    const res = await fetch('/api/process-material', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ materialSummaries: fullContent, materialNames }),
+    });
     const data = await res.json();
     setMessages([{ role: 'assistant', content: data.text }]);
     setLoading(false);
@@ -308,8 +336,7 @@ function TeachingSession({ session, onDone }: { session: any; onDone: () => void
     setInput('');
     setLoading(true);
 
-    const materialContext = session.materials.map((m: any) => `[${m.name}]: ${m.description || ''}`).join('\n');
-    const res = await fetch('/api/teach-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: newMsgs, materialContext }) });
+    const res = await fetch('/api/teach-chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: newMsgs, materialContext: materialContent }) });
     const data = await res.json();
 
     setMessages([...newMsgs, { role: 'assistant', content: data.text }]);
