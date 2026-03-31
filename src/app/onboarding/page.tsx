@@ -11,7 +11,7 @@ export default function Onboarding() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [planId, setPlanId] = useState<string | null>(null);
-  const [step, setStep] = useState<'chat' | 'goals' | 'plan' | 'schedule' | 'complete'>('chat');
+  const [step, setStep] = useState<'chat' | 'goals' | 'plan' | 'schedule' | 'complete_nina' | 'complete_auto'>('chat');
   const [planData, setPlanData] = useState<any>(null);
   const [editingGoal, setEditingGoal] = useState<number | null>(null);
   const [schedule, setSchedule] = useState<any[]>([]);
@@ -131,7 +131,7 @@ export default function Onboarding() {
     });
   }
 
-  async function submitAll() {
+  async function submitToNina() {
     if (!planId || !planData) return;
     setLoading(true);
 
@@ -146,29 +146,73 @@ export default function Onboarding() {
       initial_schedule: schedule,
     }).eq('id', planId);
 
-    // Generate diagnosis
+    // Generate diagnosis in background
     fetch('/api/diagnosis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation: messages, planData }) })
       .then(r => r.json()).then(d => { if (d.diagnosis) supabase.from('plans').update({ technical_diagnosis: d.diagnosis }).eq('id', planId); });
 
-    // Generate detailed plan for the 10 days
+    // Generate detailed plan for Nina to review
     const res = await fetch('/api/generate-daily-plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        days: schedule,
-        mealPlanBase: planData.meal_plan_base,
-        exercisePlanBase: planData.exercise_plan_base,
-        goals: planData.goals,
-      }),
+      body: JSON.stringify({ days: schedule, mealPlanBase: planData.meal_plan_base, exercisePlanBase: planData.exercise_plan_base, goals: planData.goals }),
     });
     const detailedPlan = await res.json();
-
     await supabase.from('plans').update({ detailed_plan: detailedPlan }).eq('id', planId);
 
     // Alert Nina
     const { data: { session } } = await supabase.auth.getSession();
     if (session) await supabase.from('alerts').insert({ patient_id: session.user.id, plan_id: planId, type: 'plan_ready', message: 'Novo plano pronto para revisão (com cardápio de 10 dias)' });
 
-    setStep('complete');
+    setStep('complete_nina');
+    setLoading(false);
+  }
+
+  async function submitAutoGenerate() {
+    if (!planId || !planData) return;
+    setLoading(true);
+
+    // Generate detailed plan
+    const res = await fetch('/api/generate-daily-plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days: schedule, mealPlanBase: planData.meal_plan_base, exercisePlanBase: planData.exercise_plan_base, goals: planData.goals }),
+    });
+    const detailedPlan = await res.json();
+
+    // Save plan as approved directly
+    await supabase.from('plans').update({
+      status: 'approved',
+      approved_at: new Date().toISOString(),
+      start_date: getLocalToday(),
+      duration_months: planData.duration_months,
+      goals: planData.goals,
+      meal_plan_base: planData.meal_plan_base,
+      exercise_plan_base: planData.exercise_plan_base,
+      scientific_rationale: planData.scientific_rationale,
+      onboarding_conversation: messages,
+      initial_schedule: schedule,
+      detailed_plan: detailedPlan,
+    }).eq('id', planId);
+
+    // Save daily_schedule and daily_plans
+    for (const day of schedule) {
+      await supabase.from('daily_schedule').upsert({
+        plan_id: planId, date: day.date,
+        morning: day.morning, afternoon: day.afternoon, evening: day.evening, has_gym: day.has_gym,
+      }, { onConflict: 'plan_id,date' });
+    }
+
+    if (detailedPlan.days) {
+      for (const day of detailedPlan.days) {
+        await supabase.from('daily_plans').upsert({
+          plan_id: planId, date: day.date, meals: day.meals, exercise: day.exercise, status: 'active',
+        }, { onConflict: 'plan_id,date' });
+      }
+    }
+
+    // Generate diagnosis in background
+    fetch('/api/diagnosis', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation: messages, planData }) })
+      .then(r => r.json()).then(d => { if (d.diagnosis) supabase.from('plans').update({ technical_diagnosis: d.diagnosis }).eq('id', planId); });
+
+    setStep('complete_auto');
     setLoading(false);
   }
 
@@ -318,17 +362,34 @@ export default function Onboarding() {
             })}
           </div>
 
-          <button onClick={submitAll} disabled={loading} className="w-full py-4 bg-teal-400 text-white rounded-2xl text-sm font-medium disabled:opacity-50">
-            {loading ? 'Gerando plano e enviando para a Nina...' : 'Enviar para a Nina aprovar'}
-          </button>
-          <button onClick={() => setStep('plan')} className="w-full py-3 text-gray-400 text-sm mt-2">Voltar para o plano</button>
+          <div className="space-y-3 mb-4">
+            <p className="text-sm font-medium text-center text-gray-600">Como quer prosseguir?</p>
+            
+            <button onClick={submitAutoGenerate} disabled={loading} className="w-full py-4 bg-teal-400 text-white rounded-2xl text-sm font-medium disabled:opacity-50">
+              {loading ? 'Gerando seu plano...' : '⚡ Gerar plano agora com a ninAI'}
+            </button>
+            <p className="text-xs text-gray-400 text-center -mt-1">Seu cardápio fica pronto na hora</p>
+
+            <div className="flex items-center gap-3 my-2">
+              <div className="flex-1 h-px bg-gray-200" />
+              <span className="text-xs text-gray-400">ou</span>
+              <div className="flex-1 h-px bg-gray-200" />
+            </div>
+
+            <button onClick={submitToNina} disabled={loading} className="w-full py-4 border-2 border-teal-300 text-teal-700 rounded-2xl text-sm font-medium disabled:opacity-50">
+              {loading ? 'Enviando...' : '👩‍⚕️ Enviar para a Nina aprovar'}
+            </button>
+            <p className="text-xs text-gray-400 text-center -mt-1">A Nina revisa e ajusta antes de liberar</p>
+          </div>
+
+          <button onClick={() => setStep('plan')} className="w-full py-3 text-gray-400 text-sm">Voltar para o plano</button>
         </div>
       </div>
     );
   }
 
-  // STEP: COMPLETE
-  if (step === 'complete') {
+  // STEP: COMPLETE — sent to Nina
+  if (step === 'complete_nina') {
     return (
       <div className="min-h-screen bg-white">{headerWithLogout}
         <div className="text-center py-8 px-6">
@@ -341,9 +402,32 @@ export default function Onboarding() {
             <p className="text-sm font-medium text-teal-800 mb-2">Próximos passos:</p>
             <p className="text-xs text-teal-700 mb-1">1. A Nina vai analisar metas, plano e cardápio</p>
             <p className="text-xs text-teal-700 mb-1">2. Ela pode ajustar o que precisar e aprovar</p>
-            <p className="text-xs text-teal-700">3. Após a aprovação, seu plano com os 10 dias já estará pronto!</p>
+            <p className="text-xs text-teal-700">3. Após a aprovação, seu plano estará pronto!</p>
           </div>
           <button onClick={() => window.location.href = '/dashboard'} className="mt-6 px-6 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium">Ir para o app</button>
+        </div>
+      </div>
+    );
+  }
+
+  // STEP: COMPLETE — auto-generated
+  if (step === 'complete_auto') {
+    return (
+      <div className="min-h-screen bg-white">{headerWithLogout}
+        <div className="text-center py-8 px-6">
+          <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto mb-4">
+            <span className="text-3xl">🎉</span>
+          </div>
+          <h2 className="text-xl font-medium mb-2">Plano pronto!</h2>
+          <p className="text-gray-500 text-sm leading-relaxed max-w-xs mx-auto">Seu plano com cardápio de 10 dias foi gerado e já está ativo. Você pode começar a registrar suas refeições agora!</p>
+          <div className="mt-6 bg-green-50 rounded-xl p-4 text-left">
+            <p className="text-sm font-medium text-green-800 mb-2">Tudo pronto:</p>
+            <p className="text-xs text-green-700 mb-1">✓ {planData?.goals?.length || 0} metas definidas</p>
+            <p className="text-xs text-green-700 mb-1">✓ ~{planData?.meal_plan_base?.calories} kcal/dia em {planData?.meal_plan_base?.meals_per_day || 5} refeições</p>
+            <p className="text-xs text-green-700 mb-1">✓ Exercício {planData?.exercise_plan_base?.weekly_frequency}x/semana</p>
+            <p className="text-xs text-green-700">✓ Cardápio de 10 dias gerado</p>
+          </div>
+          <button onClick={() => window.location.href = '/dashboard'} className="mt-6 px-6 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium">Começar!</button>
         </div>
       </div>
     );
