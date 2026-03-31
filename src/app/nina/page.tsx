@@ -296,35 +296,51 @@ function TeachingSession({ session, onDone }: { session: any; onDone: () => void
     setLoading(true);
     const materialNames = session.materials.map((m: any) => m.name);
 
-    // Extract text from each PDF
-    let fullContent = '';
+    // Fetch PDFs and convert to base64 client-side
+    const pdfContents: { name: string; base64: string }[] = [];
+    let textFallback = '';
+
     for (const mat of session.materials) {
       if (mat.file_url) {
         try {
-          const extractRes = await fetch('/api/extract-pdf', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileUrl: mat.file_url, fileName: mat.name }),
-          });
-          const extractData = await extractRes.json();
-          if (extractData.text) {
-            fullContent += `\n\n=== ${mat.name} ===\n${extractData.text}`;
+          const response = await fetch(mat.file_url);
+          if (response.ok) {
+            const blob = await response.blob();
+            const base64 = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const result = reader.result as string;
+                resolve(result.split(',')[1]); // Remove data:...;base64, prefix
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            pdfContents.push({ name: mat.name, base64 });
           } else {
-            fullContent += `\n\n=== ${mat.name} ===\n${mat.description || 'Conteúdo não extraído'}`;
+            textFallback += `\n[${mat.name}]: ${mat.description || 'Arquivo não acessível'}`;
           }
         } catch {
-          fullContent += `\n\n=== ${mat.name} ===\n${mat.description || 'Erro ao extrair'}`;
+          textFallback += `\n[${mat.name}]: ${mat.description || 'Erro ao carregar'}`;
         }
       }
     }
-    setMaterialContent(fullContent);
+
+    setMaterialContent(textFallback);
 
     const res = await fetch('/api/process-material', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ materialSummaries: fullContent, materialNames }),
+      body: JSON.stringify({ materialNames, pdfContents, textContent: textFallback }),
     });
     const data = await res.json();
+    
+    // Store a summary of what the AI read for use in follow-up messages
+    const extractedSummary = data.text ? `A ninAI leu os materiais e iniciou com: ${data.text.substring(0, 500)}` : textFallback;
+    setMaterialContent(pdfContents.length > 0 
+      ? `Conteúdo dos PDFs foi lido pela IA na primeira mensagem. Materiais: ${materialNames.join(', ')}. ${textFallback}`
+      : textFallback
+    );
+    
     setMessages([{ role: 'assistant', content: data.text }]);
     setLoading(false);
   }

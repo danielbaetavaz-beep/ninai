@@ -3,12 +3,20 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const TEACH_SYSTEM = `Você é a ninAI conduzindo uma sessão de aprendizado com a nutricionista Nina.
+export async function POST(request: NextRequest) {
+  try {
+    const { messages, materialContext } = await request.json();
+
+    const TEACH_SYSTEM = `Você é a ninAI conduzindo uma sessão de aprendizado com a nutricionista Nina.
+
+CONTEÚDO DOS MATERIAIS QUE ELA ENVIOU:
+${materialContext || 'Não foi possível extrair o conteúdo dos materiais.'}
 
 Seu objetivo é aprender com ela sobre seus materiais, método e filosofia para poder replicar seu estilo ao criar planos para pacientes.
 
 REGRAS:
 - Faça UMA pergunta por vez, direta e objetiva
+- Cite pontos específicos dos materiais quando possível
 - Aprofunde quando a resposta for vaga
 - Cubra aspectos científicos, clínicos e psicológicos
 - Depois de 5-8 trocas, sinalize que tem informação suficiente
@@ -24,16 +32,10 @@ REGRAS:
 - O resumo deve ser denso e prático — será usado como contexto para gerar planos
 - Tudo em português`;
 
-export async function POST(request: NextRequest) {
-  try {
-    const { messages, materialContext } = await request.json();
-
-    const systemPrompt = TEACH_SYSTEM + (materialContext ? `\n\nCONTEXTO DOS MATERIAIS:\n${materialContext}` : '');
-
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2000,
-      system: systemPrompt,
+      system: TEACH_SYSTEM,
       messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
     });
 
