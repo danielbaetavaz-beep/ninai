@@ -515,29 +515,7 @@ function UnifiedPlanReview({ plan, knowledge, onBack }: { plan: any; knowledge: 
   async function requestConsultation() { await supabase.from('plans').update({ status: 'consultation_requested' }).eq('id', plan.id); onBack(); }
 
   if (plan.status === 'approved') {
-    // Show patient overview for active plans
-    return (
-      <div className="min-h-screen">
-        <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-          <button onClick={onBack} className="text-gray-400">← Voltar</button>
-          <h2 className="text-lg font-medium">{(plan as any).profiles?.name || 'Paciente'}</h2>
-          <span className="text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full">Ativo</span>
-        </div>
-        <div className="p-4">
-          <p className="text-sm font-medium mb-2">Plano ativo</p>
-          <div className="bg-gray-50 rounded-xl p-3 mb-3 text-xs text-gray-600 space-y-1">
-            <p>Duração: {plan.duration_months} meses</p>
-            <p>Calorias: {plan.meal_plan_base?.calories} kcal/dia</p>
-            <p>Proteína: {plan.meal_plan_base?.protein_g}g | Carbo: {plan.meal_plan_base?.carbs_g}g | Gordura: {plan.meal_plan_base?.fat_g}g</p>
-            <p>Exercício: {plan.exercise_plan_base?.weekly_frequency}x/semana</p>
-          </div>
-          <p className="text-sm font-medium mb-2">Metas</p>
-          {(plan.goals || []).map((g: any, i: number) => (
-            <div key={i} className="flex items-center gap-2 py-1.5"><div className="w-1.5 h-1.5 rounded-full bg-teal-400" /><p className="text-xs">{g.description} — {g.timeframe}</p></div>
-          ))}
-        </div>
-      </div>
-    );
+    return <ActivePatientView plan={plan} onBack={onBack} />;
   }
 
   // Pending review
@@ -608,6 +586,175 @@ function UnifiedPlanReview({ plan, knowledge, onBack }: { plan: any; knowledge: 
           <button onClick={approvePlan} disabled={approving} className="w-full py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50">{approving ? 'Aprovando...' : 'Aprovar e liberar'}</button>
           {plan.status !== 'consultation_requested' && plan.status !== 'approved' && (<button onClick={requestConsultation} className="w-full py-3 border border-amber-300 text-amber-700 rounded-xl text-sm font-medium">Solicitar consulta</button>)}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Full patient view for active plans — shows plan summary, upcoming days with cardapios, history
+function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) {
+  const [dailyPlans, setDailyPlans] = useState<any[]>([]);
+  const [meals, setMeals] = useState<any[]>([]);
+  const [exercises, setExercises] = useState<any[]>([]);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [viewTab, setViewTab] = useState<'upcoming' | 'history'>('upcoming');
+
+  const todayStr = getLocalToday();
+  const dayLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  const futureDays = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() + i);
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return { date: ds, dayLabel: dayLabels[d.getDay()], isToday: i === 0 };
+  });
+
+  const pastDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(); d.setDate(d.getDate() - (7 - i));
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return { date: ds, dayLabel: dayLabels[d.getDay()] };
+  });
+
+  useEffect(() => { loadPatientData(); }, []);
+
+  async function loadPatientData() {
+    const allDates = [...pastDays.map(d => d.date), ...futureDays.map(d => d.date)];
+    const minDate = allDates[0];
+    const maxDate = allDates[allDates.length - 1];
+    const [{ data: dp }, { data: m }, { data: ex }] = await Promise.all([
+      supabase.from('daily_plans').select('*').eq('plan_id', plan.id).in('date', allDates),
+      supabase.from('meals').select('*').eq('plan_id', plan.id).gte('date', minDate).lte('date', maxDate),
+      supabase.from('exercises').select('*').eq('plan_id', plan.id).gte('date', minDate).lte('date', maxDate),
+    ]);
+    setDailyPlans(dp || []); setMeals(m || []); setExercises(ex || []); setLoading(false);
+  }
+
+  function getDailyPlan(date: string) { return dailyPlans.find(p => p.date === date); }
+  function getDayMeals(date: string) { return meals.filter(m => m.date === date); }
+  function getDayExercise(date: string) { return exercises.find(e => e.date === date); }
+
+  const patientName = (plan as any).profiles?.name || 'Paciente';
+  const mp = plan.meal_plan_base || {};
+  const pastMeals = meals.filter(m => m.date < todayStr);
+  const greenMeals = pastMeals.filter(m => m.flag === 'green').length;
+  const totalPastMeals = pastMeals.length;
+  const adherence = totalPastMeals > 0 ? Math.round((greenMeals / totalPastMeals) * 100) : 0;
+  const exDone = exercises.filter(e => e.done && e.date < todayStr).length;
+  const exTotal = exercises.filter(e => e.date < todayStr).length;
+
+  const flagColor: Record<string, string> = { green: 'bg-green-400', yellow: 'bg-amber-400', red: 'bg-red-400' };
+  const flagBg: Record<string, string> = { green: 'bg-green-50', yellow: 'bg-amber-50', red: 'bg-red-50' };
+
+  if (loading) return <div className="flex items-center justify-center min-h-screen"><p className="text-gray-400">Carregando...</p></div>;
+
+  return (
+    <div className="min-h-screen">
+      <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+        <button onClick={onBack} className="text-gray-400">← Voltar</button>
+        <div className="flex-1">
+          <h2 className="text-lg font-medium">{patientName}</h2>
+          <p className="text-xs text-gray-400">Plano de {plan.duration_months}m — desde {plan.start_date ? new Date(plan.start_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—'}</p>
+        </div>
+        <span className="text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded-full">Ativo</span>
+      </div>
+
+      <div className="p-4 pb-0">
+        <div className="grid grid-cols-4 gap-2 mb-3">
+          <div className="bg-gray-50 rounded-xl p-2 text-center"><p className={`text-lg font-medium ${adherence >= 70 ? 'text-green-600' : adherence >= 40 ? 'text-amber-600' : 'text-red-500'}`}>{adherence}%</p><p className="text-[10px] text-gray-400">aderência</p></div>
+          <div className="bg-gray-50 rounded-xl p-2 text-center"><p className="text-lg font-medium">{greenMeals}/{totalPastMeals}</p><p className="text-[10px] text-gray-400">verdes</p></div>
+          <div className="bg-gray-50 rounded-xl p-2 text-center"><p className="text-lg font-medium">{exDone}/{exTotal}</p><p className="text-[10px] text-gray-400">exercício</p></div>
+          <div className="bg-gray-50 rounded-xl p-2 text-center"><p className="text-lg font-medium">{mp.calories}</p><p className="text-[10px] text-gray-400">kcal/dia</p></div>
+        </div>
+
+        <div className="bg-teal-50 rounded-xl p-3 mb-3">
+          <div className="flex justify-between text-[10px] text-teal-700"><span>P: {mp.protein_g}g</span><span>C: {mp.carbs_g}g</span><span>G: {mp.fat_g}g</span><span>{mp.meals_per_day} ref/dia</span></div>
+        </div>
+
+        <div className="mb-3">
+          {(plan.goals || []).map((g: any, i: number) => (
+            <div key={i} className="flex items-center gap-2 py-0.5"><div className="w-1.5 h-1.5 rounded-full bg-teal-400" /><p className="text-[10px] text-gray-600">{g.description} — {g.timeframe}</p></div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex border-b border-gray-100 px-4">
+        <button onClick={() => setViewTab('upcoming')} className={`flex-1 py-2 text-xs font-medium text-center border-b-2 ${viewTab === 'upcoming' ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>Próximos dias</button>
+        <button onClick={() => setViewTab('history')} className={`flex-1 py-2 text-xs font-medium text-center border-b-2 ${viewTab === 'history' ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>Histórico (7d)</button>
+      </div>
+
+      <div className="p-4">
+        {(viewTab === 'upcoming' ? futureDays : pastDays).map(day => {
+          const dp = getDailyPlan(day.date);
+          const dayMealsReg = getDayMeals(day.date);
+          const dayEx = getDayExercise(day.date);
+          const hasPlan = !!dp;
+          const isExpanded = expandedDay === day.date;
+          const dateLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+          const isToday = day.date === todayStr;
+          const isPast = day.date < todayStr;
+
+          const completed = dayMealsReg.filter(m => m.completed === true || (m.flag && m.completed !== false)).length;
+          const total = dp?.meals?.length || 0;
+          const dayScore = total > 0 && isPast ? Math.round((completed / total) * 100) : -1;
+
+          let dominant = '';
+          if (dayMealsReg.length > 0) {
+            const g = dayMealsReg.filter(m => m.flag === 'green').length;
+            const y = dayMealsReg.filter(m => m.flag === 'yellow').length;
+            const r = dayMealsReg.filter(m => m.flag === 'red').length;
+            if (g >= y && g >= r) dominant = 'green'; else if (y >= r) dominant = 'yellow'; else dominant = 'red';
+          }
+
+          return (
+            <div key={day.date} className={`mb-2 rounded-xl border overflow-hidden ${isToday ? 'border-teal-200 bg-teal-50/20' : dominant ? `${flagBg[dominant]}` : hasPlan ? 'border-green-100' : 'border-gray-100'}`}>
+              <div className="flex items-center justify-between p-3 cursor-pointer" onClick={() => setExpandedDay(isExpanded ? null : day.date)}>
+                <div className="flex items-center gap-2">
+                  <div className={`w-2.5 h-2.5 rounded-full ${dominant ? flagColor[dominant] : hasPlan ? 'bg-green-400' : 'bg-gray-200'}`} />
+                  <span className="text-sm font-medium">{day.dayLabel}</span>
+                  <span className="text-xs text-gray-400">{dateLabel}</span>
+                  {isToday && <span className="text-[10px] text-teal-500">hoje</span>}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {dayScore >= 0 && <span className={`text-[10px] font-medium ${dayScore >= 70 ? 'text-green-600' : dayScore >= 40 ? 'text-amber-600' : 'text-red-500'}`}>{dayScore}%</span>}
+                  {isPast && completed > 0 && <span className="text-[10px] text-gray-400">{completed}/{total}</span>}
+                  {dayEx?.done && <span className="text-[10px]">💪</span>}
+                  {!hasPlan && !isPast && <span className="text-[10px] text-gray-300">sem cardápio</span>}
+                  {hasPlan && !isPast && !dominant && <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">✓</span>}
+                  <svg className={`w-3.5 h-3.5 text-gray-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" d="M19 9l-7 7-7-7" /></svg>
+                </div>
+              </div>
+
+              {isExpanded && (
+                <div className="px-3 pb-3 border-t border-gray-50/50 space-y-1.5">
+                  {hasPlan ? (dp.meals || []).map((meal: any, idx: number) => {
+                    const reg = dayMealsReg.find((m: any) => m.meal_name === meal.meal);
+                    return (
+                      <div key={idx} className={`rounded-lg p-2 ${reg?.flag ? flagBg[reg.flag] : 'bg-white border border-gray-50'}`}>
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-medium text-teal-700">{meal.meal}</p>
+                          <div className="flex items-center gap-1">
+                            {meal.location && <span className="text-[10px] text-gray-400">{meal.location}</span>}
+                            {reg?.flag && <div className={`w-2 h-2 rounded-full ${flagColor[reg.flag]}`} />}
+                            {reg?.completed === false && <span className="text-[10px] text-red-400">✕</span>}
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-0.5">{reg?.actual_description || meal.description}</p>
+                        {reg?.feedback && <p className="text-[10px] text-gray-500 italic mt-0.5">{reg.feedback}</p>}
+                        {meal.macros && <div className="flex gap-2 mt-1 text-[10px] text-gray-400"><span>P:{meal.macros.protein_g}g</span><span>C:{meal.macros.carbs_g}g</span><span>G:{meal.macros.fat_g}g</span><span>{meal.macros.calories}kcal</span></div>}
+                      </div>
+                    );
+                  }) : <p className="text-xs text-gray-400 py-1">{isPast ? 'Nenhum registro.' : 'Sem cardápio gerado.'}</p>}
+                  {dp?.exercise && (
+                    <div className={`rounded-lg p-2 ${dayEx?.done ? 'bg-green-50' : 'bg-blue-50'}`}>
+                      <p className="text-[10px] font-medium text-blue-700">{dayEx?.done ? '✓' : '○'} Exercício: {dayEx?.actual_type || dp.exercise.type}</p>
+                      <p className="text-xs text-blue-600">{dp.exercise.description}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
