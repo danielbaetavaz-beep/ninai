@@ -102,11 +102,19 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
     const d = new Date(date + 'T12:00:00');
     const dayLabel = dayLabels[d.getDay()];
 
+    // Fetch Nina's knowledge and patient favorites
+    const [{ data: knowledge }, { data: favorites }] = await Promise.all([
+      supabase.from('nina_knowledge').select('content').eq('status', 'approved'),
+      supabase.from('favorite_meals').select('meal_name, description').eq('plan_id', plan.id),
+    ]);
+
     const res = await fetch('/api/generate-daily-plan', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         days: [{ date, dayLabel, morning: sched.morning, afternoon: sched.afternoon, evening: sched.evening, has_gym: sched.has_gym }],
         mealPlanBase: plan.meal_plan_base, exercisePlanBase: plan.exercise_plan_base, goals: plan.goals,
+        ninaKnowledge: knowledge || [],
+        favorites: favorites || [],
       }),
     });
     const result = await res.json();

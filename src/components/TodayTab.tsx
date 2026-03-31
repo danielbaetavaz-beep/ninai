@@ -248,6 +248,21 @@ export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: an
                 <p className={`text-sm font-medium ${isCompleted ? (flagText[meal.flag] || '') : 'text-red-700'}`}>{isCompleted ? (flagLabel[meal.flag] || '') : 'Não realizada'}</p>
                 {meal.feedback && <p className="text-xs text-gray-600 mt-1">{meal.feedback}</p>}
                 {meal.photo_url && <img src={meal.photo_url} className="w-full h-32 object-cover rounded-lg mt-2" alt="" />}
+                {isCompleted && meal.planned_description && (
+                  <button onClick={async (e) => {
+                    e.stopPropagation();
+                    await supabase.from('favorite_meals').insert({
+                      plan_id: plan.id,
+                      meal_name: meal.meal_name,
+                      description: meal.actual_description || meal.planned_description,
+                      macros: meal.macros || {},
+                      source_date: today,
+                    });
+                    alert('Refeição favoritada! ⭐');
+                  }} className="mt-2 text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg font-medium">
+                    ⭐ Favoritar esta refeição
+                  </button>
+                )}
               </div>
             )}
           </div>

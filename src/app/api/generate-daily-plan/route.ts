@@ -5,15 +5,22 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(request: NextRequest) {
   try {
-    const { days, mealPlanBase, exercisePlanBase, goals, ninaMaterials } = await request.json();
-    // days = [{ date: '2026-03-30', morning: 'casa', afternoon: 'fora', evening: 'casa', has_gym: true }, ...]
+    const { days, mealPlanBase, exercisePlanBase, goals, ninaMaterials, ninaKnowledge, favorites } = await request.json();
 
     const dayInstructions = days.map((d: any) => 
       `${d.date} (${d.dayLabel}): Manhã=${d.morning}, Tarde=${d.afternoon}, Noite=${d.evening}. Academia=${d.has_gym ? 'sim' : 'não'}`
     ).join('\n');
 
     const materialsContext = ninaMaterials?.length > 0 
-      ? `\n\nMATERIAIS DE REFERÊNCIA DA NUTRICIONISTA (use como inspiração para estilo e abordagem):\n${ninaMaterials.map((m: any) => m.content_summary || '').filter(Boolean).join('\n---\n')}`
+      ? `\n\nMATERIAIS DE REFERÊNCIA DA NUTRICIONISTA:\n${ninaMaterials.map((m: any) => m.content_summary || '').filter(Boolean).join('\n---\n')}`
+      : '';
+
+    const knowledgeContext = ninaKnowledge?.length > 0
+      ? `\n\nCONHECIMENTO DA NUTRICIONISTA (use como base para estilo e abordagem):\n${ninaKnowledge.map((k: any) => k.content).join('\n---\n')}`
+      : '';
+
+    const favoritesContext = favorites?.length > 0
+      ? `\n\nREFEIÇÕES FAVORITAS DO PACIENTE (priorize incluir quando possível):\n${favorites.map((f: any) => `- ${f.meal_name}: ${f.description}`).join('\n')}`
       : '';
 
     const response = await anthropic.messages.create({
@@ -34,7 +41,7 @@ ${JSON.stringify(exercisePlanBase, null, 2)}
 
 METAS:
 ${JSON.stringify(goals, null, 2)}
-${materialsContext}
+${materialsContext}${knowledgeContext}${favoritesContext}
 
 REGRAS:
 - Para cada dia, gere as refeições baseadas no plano alimentar base
