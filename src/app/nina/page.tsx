@@ -203,7 +203,20 @@ export default function NinaPanel() {
             const fileName = `material_${Date.now()}_${file.name}`;
             await supabase.storage.from('nina-materials').upload(fileName, file);
             const { data: urlData } = supabase.storage.from('nina-materials').getPublicUrl(fileName);
-            await supabase.from('nina_materials').insert({ uploaded_by: profile.id, name: file.name, description: desc, file_url: urlData.publicUrl, file_type: file.name.endsWith('.pdf') ? 'pdf' : 'other' });
+            
+            // Read file as base64 to store for later use in teaching
+            const base64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve((reader.result as string).split(',')[1]);
+              reader.readAsDataURL(file);
+            });
+            
+            await supabase.from('nina_materials').insert({ 
+              uploaded_by: profile.id, name: file.name, description: desc, 
+              file_url: urlData.publicUrl, 
+              file_type: file.name.endsWith('.pdf') ? 'pdf' : 'other',
+              content_summary: base64, // Store base64 for teaching session
+            });
             loadData();
           }} onDelete={async (id: string) => { await supabase.from('nina_materials').delete().eq('id', id); loadData(); }} />
 
@@ -296,32 +309,16 @@ function TeachingSession({ session, onDone }: { session: any; onDone: () => void
     setLoading(true);
     const materialNames = session.materials.map((m: any) => m.name);
 
-    // Fetch PDFs and convert to base64 client-side
+    // Use base64 stored in content_summary during upload
     const pdfContents: { name: string; base64: string }[] = [];
     let textFallback = '';
 
     for (const mat of session.materials) {
-      if (mat.file_url) {
-        try {
-          const response = await fetch(mat.file_url);
-          if (response.ok) {
-            const blob = await response.blob();
-            const base64 = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => {
-                const result = reader.result as string;
-                resolve(result.split(',')[1]); // Remove data:...;base64, prefix
-              };
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
-            pdfContents.push({ name: mat.name, base64 });
-          } else {
-            textFallback += `\n[${mat.name}]: ${mat.description || 'Arquivo não acessível'}`;
-          }
-        } catch {
-          textFallback += `\n[${mat.name}]: ${mat.description || 'Erro ao carregar'}`;
-        }
+      if (mat.content_summary && mat.file_type === 'pdf') {
+        // content_summary has the base64 of the PDF stored during upload
+        pdfContents.push({ name: mat.name, base64: mat.content_summary });
+      } else {
+        textFallback += `\n[${mat.name}]: ${mat.description || 'Sem conteúdo disponível'}`;
       }
     }
 
@@ -334,8 +331,6 @@ function TeachingSession({ session, onDone }: { session: any; onDone: () => void
     });
     const data = await res.json();
     
-    // Store a summary of what the AI read for use in follow-up messages
-    const extractedSummary = data.text ? `A ninAI leu os materiais e iniciou com: ${data.text.substring(0, 500)}` : textFallback;
     setMaterialContent(pdfContents.length > 0 
       ? `Conteúdo dos PDFs foi lido pela IA na primeira mensagem. Materiais: ${materialNames.join(', ')}. ${textFallback}`
       : textFallback
