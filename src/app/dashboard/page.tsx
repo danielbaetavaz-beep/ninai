@@ -7,6 +7,7 @@ import TodayTab from '@/components/TodayTab';
 import ScheduleTab from '@/components/ScheduleTab';
 import PlanTab from '@/components/PlanTab';
 import ChatTab from '@/components/ChatTab';
+import GroceryTab from '@/components/GroceryTab';
 import ProfileTab from '@/components/ProfileTab';
 
 export default function Dashboard() {
@@ -103,8 +104,8 @@ export default function Dashboard() {
 
   const tabs = [
     { id: 'hoje', label: 'Hoje' },
-    { id: 'programacao', label: 'Programação' },
-    { id: 'plano', label: 'Plano' },
+    { id: 'programacao', label: 'Agenda' },
+    { id: 'compras', label: 'Compras' },
     { id: 'chat', label: 'Chat' },
     { id: 'perfil', label: profile?.name?.split(' ')[0] || 'Perfil' },
   ];
@@ -118,7 +119,7 @@ export default function Dashboard() {
       <div className="flex-1 overflow-y-auto pb-16">
         {tab === 'hoje' && <TodayTab plan={plan} todayPlan={todayPlan} />}
         {tab === 'programacao' && <ScheduleTab plan={plan} onPlanGenerated={loadData} />}
-        {tab === 'plano' && <PlanTab plan={plan} />}
+        {tab === 'compras' && <GroceryTab plan={plan} />}
         {tab === 'chat' && <ChatTab plan={plan} />}
         {tab === 'perfil' && <ProfileTab profile={profile} plan={plan} />}
       </div>
@@ -131,7 +132,7 @@ function BottomNav({ tab, setTab, profileName }: { tab: string; setTab: (t: stri
   const tabs = [
     { id: 'hoje', label: 'Hoje' },
     { id: 'programacao', label: 'Agenda' },
-    { id: 'plano', label: 'Plano' },
+    { id: 'compras', label: 'Compras' },
     { id: 'chat', label: 'Chat' },
     { id: 'perfil', label: profileName?.split(' ')[0] || 'Perfil' },
   ];
