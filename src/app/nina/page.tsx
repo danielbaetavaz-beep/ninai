@@ -199,13 +199,13 @@ export default function NinaPanel() {
           <p className="text-sm font-medium mb-2">Materiais de referência</p>
           <p className="text-xs text-gray-400 mb-4">Faça upload de PDFs e o app vai te fazer perguntas para aprender seu método.</p>
 
-          <MaterialUploadAndTeach profile={profile} materials={materials} onStartTeaching={setTeachingSession} onUpload={async (file, desc) => {
+          <MaterialUploadAndTeach profile={profile} materials={materials} onStartTeaching={setTeachingSession} onUpload={async (file: File, desc: string) => {
             const fileName = `material_${Date.now()}_${file.name}`;
             await supabase.storage.from('nina-materials').upload(fileName, file);
             const { data: urlData } = supabase.storage.from('nina-materials').getPublicUrl(fileName);
             await supabase.from('nina_materials').insert({ uploaded_by: profile.id, name: file.name, description: desc, file_url: urlData.publicUrl, file_type: file.name.endsWith('.pdf') ? 'pdf' : 'other' });
             loadData();
-          }} onDelete={async (id) => { await supabase.from('nina_materials').delete().eq('id', id); loadData(); }} />
+          }} onDelete={async (id: string) => { await supabase.from('nina_materials').delete().eq('id', id); loadData(); }} />
 
           {/* Knowledge base */}
           {knowledge.length > 0 && (
