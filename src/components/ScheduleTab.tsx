@@ -8,10 +8,12 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
   const [schedules, setSchedules] = useState<any[]>([]);
   const [dailyPlans, setDailyPlans] = useState<any[]>([]);
   const [pastSchedules, setPastSchedules] = useState<any[]>([]);
+  const [pastMeals, setPastMeals] = useState<any[]>([]);
   const [generating, setGenerating] = useState<string | null>(null);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [recipeModal, setRecipeModal] = useState<{ mealName: string; description: string; macros?: any } | null>(null);
+  const [viewMode, setViewMode] = useState<'future' | 'past'>('future');
 
   const todayStr = getLocalToday();
   const dayLabels = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -23,11 +25,11 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
     return { date: toLocalDateStr(d), dayLabel: dayLabels[d.getDay()], dayOfWeek: d.getDay(), isToday: i === 0 };
   });
 
-  // Build past 7 days for prefill reference
+  // Build past 7 days with labels
   const pastDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - 7 + i);
-    return { date: toLocalDateStr(d), dayOfWeek: d.getDay() };
+    return { date: toLocalDateStr(d), dayLabel: dayLabels[d.getDay()], dayOfWeek: d.getDay() };
   });
 
   useEffect(() => { loadAll(); }, []);
@@ -35,15 +37,18 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
   async function loadAll() {
     const futureDates = futureDays.map(d => d.date);
     const pastDates = pastDays.map(d => d.date);
+    const allDates = [...pastDates, ...futureDates];
 
-    const [{ data: sched }, { data: plans }, { data: pastSched }] = await Promise.all([
+    const [{ data: sched }, { data: plans }, { data: pastSched }, { data: mealData }] = await Promise.all([
       supabase.from('daily_schedule').select('*').eq('plan_id', plan.id).in('date', futureDates),
-      supabase.from('daily_plans').select('*').eq('plan_id', plan.id).in('date', futureDates),
+      supabase.from('daily_plans').select('*').eq('plan_id', plan.id).in('date', allDates),
       supabase.from('daily_schedule').select('*').eq('plan_id', plan.id).in('date', pastDates),
+      supabase.from('meals').select('*').eq('plan_id', plan.id).in('date', pastDates),
     ]);
     setSchedules(sched || []);
     setDailyPlans(plans || []);
     setPastSchedules(pastSched || []);
+    setPastMeals(mealData || []);
     setLoading(false);
   }
 
@@ -137,12 +142,109 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
 
   if (loading) return <div className="p-4 text-center text-gray-400 text-sm">Carregando...</div>;
 
+  const flagColor: Record<string, string> = { green: 'bg-green-400', yellow: 'bg-amber-400', red: 'bg-red-400' };
+  const flagBg: Record<string, string> = { green: 'bg-green-50', yellow: 'bg-amber-50', red: 'bg-red-50' };
+
+  function getPastDayMeals(date: string) { return pastMeals.filter(m => m.date === date); }
+
   return (
     <div className="p-4">
       <p className="text-lg font-medium mb-1">Agenda</p>
-      <p className="text-xs text-gray-400 mb-4">Seus próximos 14 dias. Preencha a programação e gere o cardápio.</p>
 
-      {futureDays.map(day => {
+      {/* Sub-tabs */}
+      <div className="flex gap-2 mb-4">
+        <button onClick={() => setViewMode('future')} className={`flex-1 py-2 rounded-xl text-xs font-medium ${viewMode === 'future' ? 'bg-teal-400 text-white' : 'bg-gray-100 text-gray-500'}`}>
+          Próximos 14 dias
+        </button>
+        <button onClick={() => setViewMode('past')} className={`flex-1 py-2 rounded-xl text-xs font-medium ${viewMode === 'past' ? 'bg-teal-400 text-white' : 'bg-gray-100 text-gray-500'}`}>
+          Últimos 7 dias
+        </button>
+      </div>
+
+      {/* PAST DAYS VIEW */}
+      {viewMode === 'past' && pastDays.map(day => {
+        const dp = getDailyPlan(day.date);
+        const dayMeals = getPastDayMeals(day.date);
+        const isExpanded = expandedDay === day.date;
+        const dateLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+
+        // Dominant flag for the day
+        const greens = dayMeals.filter(m => m.flag === 'green').length;
+        const yellows = dayMeals.filter(m => m.flag === 'yellow').length;
+        const reds = dayMeals.filter(m => m.flag === 'red').length;
+        let dominant = '';
+        if (dayMeals.length > 0) {
+          if (greens >= yellows && greens >= reds) dominant = 'green';
+          else if (yellows >= reds) dominant = 'yellow';
+          else dominant = 'red';
+        }
+
+        const completed = dayMeals.filter(m => m.completed === true || (m.flag && m.completed !== false)).length;
+        const total = dp?.meals?.length || dayMeals.length || 0;
+
+        return (
+          <div key={day.date} className={`mb-3 rounded-xl overflow-hidden border ${dominant ? `${flagBg[dominant]} border-${dominant === 'green' ? 'green' : dominant === 'yellow' ? 'amber' : 'red'}-100` : 'border-gray-100 bg-gray-50'}`}>
+            <div className="flex items-center justify-between p-3 cursor-pointer" onClick={() => setExpandedDay(isExpanded ? null : day.date)}>
+              <div className="flex items-center gap-2">
+                <div className={`w-2.5 h-2.5 rounded-full ${dominant ? flagColor[dominant] : 'bg-gray-200'}`} />
+                <span className="text-sm font-medium">{day.dayLabel}</span>
+                <span className="text-xs text-gray-400">{dateLabel}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {dayMeals.length > 0 ? (
+                  <span className="text-[10px] text-gray-500">{completed}/{total} refeições</span>
+                ) : (
+                  <span className="text-[10px] text-gray-300">sem registro</span>
+                )}
+                <svg className={`w-4 h-4 text-gray-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+            </div>
+
+            {isExpanded && (
+              <div className="px-3 pb-3 border-t border-gray-100/50 space-y-2">
+                {dp ? (dp.meals || []).map((meal: any, idx: number) => {
+                  const registered = dayMeals.find(m => m.meal_name === meal.meal);
+                  return (
+                    <div key={idx} className={`rounded-lg p-2.5 ${registered?.flag ? flagBg[registered.flag] : 'bg-white border border-gray-50'}`}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium text-teal-700">{meal.meal}</p>
+                        <div className="flex items-center gap-1">
+                          {meal.location && <span className="text-[10px] text-gray-400">{meal.location}</span>}
+                          {registered?.flag && <div className={`w-2 h-2 rounded-full ${flagColor[registered.flag]}`} />}
+                          {registered?.completed === false && <span className="text-[10px] text-red-400">✕</span>}
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-600 mt-0.5">{registered?.actual_description || meal.description}</p>
+                      {registered?.feedback && <p className="text-[10px] text-gray-500 italic mt-0.5">{registered.feedback}</p>}
+                      {meal.macros && (
+                        <div className="flex gap-3 mt-1.5 text-[10px] text-gray-400">
+                          <span>P:{meal.macros.protein_g}g</span><span>C:{meal.macros.carbs_g}g</span><span>G:{meal.macros.fat_g}g</span><span>{meal.macros.calories}kcal</span>
+                        </div>
+                      )}
+                      <button onClick={() => setRecipeModal({ mealName: meal.meal, description: meal.description, macros: meal.macros })} className="mt-2 text-[10px] text-teal-600 font-medium flex items-center gap-1">
+                        👨‍🍳 Ver receita
+                      </button>
+                    </div>
+                  );
+                }) : (
+                  dayMeals.length > 0 ? dayMeals.map((meal: any, idx: number) => (
+                    <div key={idx} className={`rounded-lg p-2.5 ${meal.flag ? flagBg[meal.flag] : 'bg-white border border-gray-50'}`}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium">{meal.meal_name}</p>
+                        {meal.flag && <div className={`w-2 h-2 rounded-full ${flagColor[meal.flag]}`} />}
+                      </div>
+                      <p className="text-xs text-gray-600 mt-0.5">{meal.actual_description || meal.planned_description || meal.feedback}</p>
+                    </div>
+                  )) : <p className="text-xs text-gray-400 py-2">Nenhum registro neste dia.</p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* FUTURE DAYS VIEW */}
+      {viewMode === 'future' && futureDays.map(day => {
         const sched = getSchedule(day.date);
         const dp = getDailyPlan(day.date);
         const prefill = !sched ? getPrefill(day.dayOfWeek) : null;
