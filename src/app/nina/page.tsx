@@ -598,7 +598,11 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
   const [exercises, setExercises] = useState<any[]>([]);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [viewTab, setViewTab] = useState<'upcoming' | 'history'>('upcoming');
+  const [viewTab, setViewTab] = useState<'upcoming' | 'history' | 'files'>('upcoming');
+  const [patientFiles, setPatientFiles] = useState<any[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const todayStr = getLocalToday();
   const dayLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -621,12 +625,54 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
     const allDates = [...pastDays.map(d => d.date), ...futureDays.map(d => d.date)];
     const minDate = allDates[0];
     const maxDate = allDates[allDates.length - 1];
-    const [{ data: dp }, { data: m }, { data: ex }] = await Promise.all([
+    const [{ data: dp }, { data: m }, { data: ex }, { data: files }] = await Promise.all([
       supabase.from('daily_plans').select('*').eq('plan_id', plan.id).in('date', allDates),
       supabase.from('meals').select('*').eq('plan_id', plan.id).gte('date', minDate).lte('date', maxDate),
       supabase.from('exercises').select('*').eq('plan_id', plan.id).gte('date', minDate).lte('date', maxDate),
+      supabase.from('patient_files').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }),
     ]);
-    setDailyPlans(dp || []); setMeals(m || []); setExercises(ex || []); setLoading(false);
+    setDailyPlans(dp || []); setMeals(m || []); setExercises(ex || []); setPatientFiles(files || []); setLoading(false);
+  }
+
+  async function uploadFile(file: File, description: string) {
+    setUploading(true);
+    const fileName = `patient_${plan.patient_id}/${Date.now()}_${file.name}`;
+    await supabase.storage.from('patient-files').upload(fileName, file);
+    const { data: urlData } = supabase.storage.from('patient-files').getPublicUrl(fileName);
+    await supabase.from('patient_files').insert({
+      plan_id: plan.id, patient_id: plan.patient_id, name: file.name, description,
+      file_url: urlData.publicUrl, file_type: file.type.startsWith('image/') ? 'image' : file.name.split('.').pop() || 'other',
+    });
+    setUploading(false);
+    loadPatientData();
+  }
+
+  async function deleteFile(fileId: string) {
+    await supabase.from('patient_files').delete().eq('id', fileId);
+    setPatientFiles((prev: any[]) => prev.filter((f: any) => f.id !== fileId));
+  }
+
+  async function deletePatient(keepHistory: boolean) {
+    setDeleting(true);
+    if (!keepHistory) {
+      // Delete all data
+      await supabase.from('direct_messages').delete().eq('plan_id', plan.id);
+      await supabase.from('favorite_meals').delete().eq('plan_id', plan.id);
+      await supabase.from('patient_files').delete().eq('plan_id', plan.id);
+      await supabase.from('meals').delete().eq('plan_id', plan.id);
+      await supabase.from('exercises').delete().eq('plan_id', plan.id);
+      await supabase.from('daily_plans').delete().eq('plan_id', plan.id);
+      await supabase.from('daily_schedule').delete().eq('plan_id', plan.id);
+      await supabase.from('daily_checkins').delete().eq('plan_id', plan.id);
+      await supabase.from('alerts').delete().eq('plan_id', plan.id);
+      await supabase.from('plans').delete().eq('id', plan.id);
+      await supabase.from('profiles').delete().eq('id', plan.patient_id);
+    } else {
+      // Just deactivate the plan, keep history
+      await supabase.from('plans').update({ status: 'archived' }).eq('id', plan.id);
+    }
+    setDeleting(false);
+    onBack();
   }
 
   function getDailyPlan(date: string) { return dailyPlans.find(p => p.date === date); }
@@ -679,7 +725,11 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
 
       <div className="flex border-b border-gray-100 px-4">
         <button onClick={() => setViewTab('upcoming')} className={`flex-1 py-2 text-xs font-medium text-center border-b-2 ${viewTab === 'upcoming' ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>Próximos dias</button>
-        <button onClick={() => setViewTab('history')} className={`flex-1 py-2 text-xs font-medium text-center border-b-2 ${viewTab === 'history' ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>Histórico (7d)</button>
+        <button onClick={() => setViewTab('history')} className={`flex-1 py-2 text-xs font-medium text-center border-b-2 ${viewTab === 'history' ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>Histórico</button>
+        <button onClick={() => setViewTab('files')} className={`flex-1 py-2 text-xs font-medium text-center border-b-2 relative ${viewTab === 'files' ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>
+          Arquivos
+          {patientFiles.length > 0 && <span className="ml-1 text-[9px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">{patientFiles.length}</span>}
+        </button>
       </div>
 
       <div className="p-4">
@@ -756,6 +806,60 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
           );
         })}
       </div>
+
+      {/* FILES TAB */}
+      {viewTab === 'files' && (
+        <div className="p-4">
+          <div className="bg-gray-50 rounded-xl p-3 mb-4">
+            <label className={`block w-full py-3 text-center rounded-xl text-sm font-medium cursor-pointer ${uploading ? 'bg-gray-300 text-gray-500' : 'bg-teal-400 text-white'}`}>
+              {uploading ? 'Enviando...' : '+ Upload arquivo (exame, foto, documento)'}
+              <input type="file" accept="image/*,.pdf,.doc,.docx,.txt" className="hidden" onChange={async (e: React.ChangeEvent<HTMLInputElement>) => {
+                if (e.target.files?.[0]) {
+                  const desc = prompt('Descrição do arquivo (opcional):') || '';
+                  await uploadFile(e.target.files[0], desc);
+                }
+              }} />
+            </label>
+          </div>
+          {patientFiles.length === 0 && <p className="text-xs text-gray-400 text-center py-4">Nenhum arquivo. Faça upload de exames, fotos ou documentos.</p>}
+          {patientFiles.map((file: any) => (
+            <div key={file.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl mb-2">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-lg ${file.file_type === 'image' ? 'bg-blue-50' : file.file_type === 'pdf' ? 'bg-red-50' : 'bg-gray-50'}`}>
+                {file.file_type === 'image' ? '🖼' : file.file_type === 'pdf' ? '📄' : '📎'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{file.name}</p>
+                <p className="text-[10px] text-gray-400">{file.description || 'Sem descrição'} — {new Date(file.created_at).toLocaleDateString('pt-BR')}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="text-xs text-teal-600 px-2 py-1 bg-teal-50 rounded-lg">Ver</a>
+                <button onClick={() => deleteFile(file.id)} className="text-xs text-red-400 px-2 py-1">✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Delete patient */}
+      <div className="p-4 border-t border-gray-100">
+        <button onClick={() => setShowDeleteConfirm(true)} className="w-full py-2.5 border border-red-200 text-red-500 rounded-xl text-xs font-medium">Remover paciente</button>
+      </div>
+
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative bg-white rounded-2xl w-[90%] max-w-sm p-5" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <p className="text-lg font-medium mb-2">Remover {patientName}?</p>
+            <p className="text-xs text-gray-500 mb-4">Escolha o que fazer com os dados:</p>
+            <button onClick={() => deletePatient(true)} disabled={deleting} className="w-full py-3 mb-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-sm font-medium disabled:opacity-50">{deleting ? 'Processando...' : 'Arquivar (manter histórico)'}</button>
+            <p className="text-[10px] text-gray-400 text-center mb-3">O paciente não acessa mais, mas você mantém os registros.</p>
+            <button onClick={() => deletePatient(false)} disabled={deleting} className="w-full py-3 mb-2 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm font-medium disabled:opacity-50">{deleting ? 'Processando...' : 'Apagar tudo permanentemente'}</button>
+            <p className="text-[10px] text-gray-400 text-center mb-4">Remove paciente e todos os dados. Irreversível.</p>
+            <button onClick={() => setShowDeleteConfirm(false)} className="w-full py-2.5 border border-gray-200 text-gray-500 rounded-xl text-sm">Cancelar</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
