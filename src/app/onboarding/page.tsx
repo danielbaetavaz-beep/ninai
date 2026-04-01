@@ -26,6 +26,9 @@ export default function Onboarding() {
   const [planData, setPlanData] = useState<any>(null);
   const [editingGoal, setEditingGoal] = useState<number | null>(null);
   const [schedule, setSchedule] = useState<any[]>([]);
+  const [showOtherObj, setShowOtherObj] = useState(false);
+  const [showOtherRes, setShowOtherRes] = useState(false);
+  const [showExtraInput, setShowExtraInput] = useState(false);
 
   useEffect(() => { initPlan(); }, []);
 
@@ -210,7 +213,6 @@ Informações adicionais: ${extraInfo || 'nenhuma'}` }],
   // ============ STEP: OBJECTIVES ============
   if (step === 'objectives') {
     const objOptions = ['Emagrecer', 'Ganhar massa muscular', 'Comer melhor', 'Mais energia e disposição', 'Melhorar saúde metabólica', 'Controlar ansiedade/compulsão'];
-    const [showOther, setShowOther] = useState(false);
     return (
       <div className="min-h-screen bg-white">{headerWithLogout}
         <div className="p-6">
@@ -224,8 +226,8 @@ Informações adicionais: ${extraInfo || 'nenhuma'}` }],
                 {objectives.includes(obj) ? '✓ ' : ''}{obj}
               </button>
             ))}
-            {!showOther ? (
-              <button onClick={() => setShowOther(true)} className="w-full py-3 px-4 rounded-xl text-sm text-gray-400 border border-dashed border-gray-200">+ Outro objetivo</button>
+            {!showOtherObj ? (
+              <button onClick={() => setShowOtherObj(true)} className="w-full py-3 px-4 rounded-xl text-sm text-gray-400 border border-dashed border-gray-200">+ Outro objetivo</button>
             ) : (
               <input type="text" value={otherObjective} onChange={e => setOtherObjective(e.target.value)} placeholder="Descreva seu objetivo..." className="w-full px-4 py-3 border border-teal-300 rounded-xl text-sm focus:outline-none" autoFocus />
             )}
@@ -240,7 +242,6 @@ Informações adicionais: ${extraInfo || 'nenhuma'}` }],
 
   // ============ STEP: PROFILE ============
   if (step === 'profile') {
-    const [showOtherR, setShowOtherR] = useState(false);
     const activityOptions = ['Sedentário', '1-2x por semana', '3-4x por semana', '5+ por semana'];
     const restrictionOptions = ['Intolerância a lactose', 'Intolerância a glúten', 'Vegetariano', 'Vegano', 'Nenhuma'];
     const eatingOutOptions = ['Raramente', 'Às vezes (1-2x/sem)', 'Frequentemente (3+/sem)'];
@@ -264,8 +265,8 @@ Informações adicionais: ${extraInfo || 'nenhuma'}` }],
               <button key={opt} onClick={() => { if (opt === 'Nenhuma') { setRestrictions([]); } else toggleRestriction(opt); }} className={`py-2.5 px-3 rounded-xl text-xs font-medium transition-all ${opt === 'Nenhuma' ? (restrictions.length === 0 ? 'bg-teal-400 text-white' : 'bg-gray-50 text-gray-600 border border-gray-200') : (restrictions.includes(opt) ? 'bg-teal-400 text-white' : 'bg-gray-50 text-gray-600 border border-gray-200')}`}>{opt}</button>
             ))}
           </div>
-          {!showOtherR ? (
-            <button onClick={() => setShowOtherR(true)} className="w-full py-2 mb-4 text-xs text-gray-400 border border-dashed border-gray-200 rounded-xl">+ Outra restrição</button>
+          {!showOtherRes ? (
+            <button onClick={() => setShowOtherRes(true)} className="w-full py-2 mb-4 text-xs text-gray-400 border border-dashed border-gray-200 rounded-xl">+ Outra restrição</button>
           ) : (
             <input type="text" value={otherRestriction} onChange={e => setOtherRestriction(e.target.value)} placeholder="Qual restrição?" className="w-full px-3 py-2 mb-4 border border-teal-300 rounded-xl text-sm focus:outline-none" autoFocus />
           )}
@@ -325,7 +326,7 @@ Informações adicionais: ${extraInfo || 'nenhuma'}` }],
 
   // ============ STEP: EXTRA INFO ============
   if (step === 'extra') {
-    const [showInput, setShowInput] = useState(false);
+    const [showExtraInput, setShowExtraInput] = useState(false);
     return (
       <div className="min-h-screen bg-white">{headerWithLogout}
         <div className="p-6">
@@ -333,9 +334,9 @@ Informações adicionais: ${extraInfo || 'nenhuma'}` }],
           <h2 className="text-lg font-medium mb-2">Mais alguma coisa?</h2>
           <p className="text-sm text-gray-500 mb-6">Tem alguma informação importante que eu preciso saber? (problemas de saúde, medicamentos, alergias, preferências...)</p>
 
-          {!showInput ? (
+          {!showExtraInput ? (
             <div className="space-y-3">
-              <button onClick={() => setShowInput(true)} className="w-full py-4 bg-gray-50 border border-gray-200 text-gray-700 rounded-2xl text-sm font-medium">Sim, quero informar algo</button>
+              <button onClick={() => setShowExtraInput(true)} className="w-full py-4 bg-gray-50 border border-gray-200 text-gray-700 rounded-2xl text-sm font-medium">Sim, quero informar algo</button>
               <button onClick={() => { setExtraInfo(''); generateGoals(); }} className="w-full py-4 bg-teal-400 text-white rounded-2xl text-sm font-medium">Não, está tudo! Gerar meu plano</button>
             </div>
           ) : (
