@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getLocalToday } from '@/lib/dates';
 import UserMenu from '@/components/UserMenu';
+import JourneyTab from '@/components/JourneyTab';
 import TodayTab from '@/components/TodayTab';
 import ScheduleTab from '@/components/ScheduleTab';
 import PlanTab from '@/components/PlanTab';
@@ -11,7 +12,7 @@ import GroceryTab from '@/components/GroceryTab';
 import ProfileTab from '@/components/ProfileTab';
 
 export default function Dashboard() {
-  const [tab, setTab] = useState('hoje');
+  const [tab, setTab] = useState('jornada');
   const [profile, setProfile] = useState<any>(null);
   const [plan, setPlan] = useState<any>(null);
   const [todayPlan, setTodayPlan] = useState<any>(null);
@@ -103,11 +104,11 @@ export default function Dashboard() {
   }
 
   const tabs = [
+    { id: 'jornada', label: 'Jornada' },
     { id: 'hoje', label: 'Hoje' },
     { id: 'programacao', label: 'Agenda' },
     { id: 'compras', label: 'Compras' },
     { id: 'chat', label: 'Chat' },
-    { id: 'perfil', label: profile?.name?.split(' ')[0] || 'Perfil' },
   ];
 
   return (
@@ -117,11 +118,11 @@ export default function Dashboard() {
         {profile && <UserMenu profile={profile} plan={plan} />}
       </div>
       <div className="flex-1 overflow-y-auto pb-16">
+        {tab === 'jornada' && <JourneyTab plan={plan} />}
         {tab === 'hoje' && <TodayTab plan={plan} todayPlan={todayPlan} />}
         {tab === 'programacao' && <ScheduleTab plan={plan} onPlanGenerated={loadData} />}
         {tab === 'compras' && <GroceryTab plan={plan} />}
         {tab === 'chat' && <ChatTab plan={plan} />}
-        {tab === 'perfil' && <ProfileTab profile={profile} plan={plan} />}
       </div>
       <BottomNav tab={tab} setTab={setTab} profileName={profile?.name} />
     </div>
@@ -130,11 +131,11 @@ export default function Dashboard() {
 
 function BottomNav({ tab, setTab, profileName }: { tab: string; setTab: (t: string) => void; profileName?: string }) {
   const tabs = [
+    { id: 'jornada', label: 'Jornada' },
     { id: 'hoje', label: 'Hoje' },
     { id: 'programacao', label: 'Agenda' },
     { id: 'compras', label: 'Compras' },
     { id: 'chat', label: 'Chat' },
-    { id: 'perfil', label: profileName?.split(' ')[0] || 'Perfil' },
   ];
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 max-w-md mx-auto">
