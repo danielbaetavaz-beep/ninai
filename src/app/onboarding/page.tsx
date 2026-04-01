@@ -46,12 +46,26 @@ export default function Onboarding() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { window.location.href = '/'; return; }
 
-    // Check if profile has name already
-    const { data: prof } = await supabase.from('profiles').select('name').eq('id', session.user.id).single();
-    if (prof?.name) setName(prof.name);
+    // Ensure profile exists
+    const { data: prof } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+    if (!prof) {
+      await supabase.from('profiles').insert({ id: session.user.id, email: session.user.email, role: 'patient' });
+    } else if (prof.name) {
+      setName(prof.name);
+    }
 
-    const { data: newPlan } = await supabase.from('plans').insert({ patient_id: session.user.id, status: 'onboarding' }).select().single();
+    // Check for existing onboarding plan
+    const { data: existingPlans } = await supabase.from('plans').select('*').eq('patient_id', session.user.id).eq('status', 'onboarding').order('created_at', { ascending: false }).limit(1);
+    
+    if (existingPlans && existingPlans.length > 0) {
+      setPlanId(existingPlans[0].id);
+      return;
+    }
+
+    // Create new plan
+    const { data: newPlan, error } = await supabase.from('plans').insert({ patient_id: session.user.id, status: 'onboarding' }).select().single();
     if (newPlan) setPlanId(newPlan.id);
+    if (error) console.error('Plan creation error:', error);
   }
 
   function toggleObjective(obj: string) {
@@ -326,7 +340,6 @@ Informações adicionais: ${extraInfo || 'nenhuma'}` }],
 
   // ============ STEP: EXTRA INFO ============
   if (step === 'extra') {
-    const [showExtraInput, setShowExtraInput] = useState(false);
     return (
       <div className="min-h-screen bg-white">{headerWithLogout}
         <div className="p-6">
