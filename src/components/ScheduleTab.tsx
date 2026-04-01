@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getLocalToday, toLocalDateStr } from '@/lib/dates';
+import RecipeModal from '@/components/RecipeModal';
 
 export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPlanGenerated: () => void }) {
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -10,6 +11,7 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
   const [generating, setGenerating] = useState<string | null>(null);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recipeModal, setRecipeModal] = useState<{ mealName: string; description: string; macros?: any } | null>(null);
 
   const todayStr = getLocalToday();
   const dayLabels = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -226,6 +228,9 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
                             <span>{meal.macros.calories}kcal</span>
                           </div>
                         )}
+                        <button onClick={() => setRecipeModal({ mealName: meal.meal, description: meal.description, macros: meal.macros })} className="mt-2 text-[10px] text-teal-600 font-medium flex items-center gap-1">
+                          👨‍🍳 Ver receita
+                        </button>
                       </div>
                     ))}
 
@@ -246,6 +251,9 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
           </div>
         );
       })}
+
+      {/* Recipe Modal */}
+      {recipeModal && <RecipeModal mealName={recipeModal.mealName} description={recipeModal.description} macros={recipeModal.macros} onClose={() => setRecipeModal(null)} />}
     </div>
   );
 }

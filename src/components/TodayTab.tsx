@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getLocalToday } from '@/lib/dates';
+import RecipeModal from '@/components/RecipeModal';
 
 export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: any }) {
   const [todayMeals, setTodayMeals] = useState<any[]>([]);
@@ -19,6 +20,7 @@ export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: an
   const [showCloseDay, setShowCloseDay] = useState(false);
   const [closingDay, setClosingDay] = useState(false);
   const [showDescribe, setShowDescribe] = useState<string | null>(null);
+  const [recipeModal, setRecipeModal] = useState<{ mealName: string; description: string; macros?: any } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -269,7 +271,12 @@ export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: an
             </div>
             {expandedMeal === meal.meal_name && !confirmData && !isCompleted && !isSkipped && (
               <div className="p-3 rounded-xl mt-1 bg-gray-50">
-                <p className="text-xs text-gray-500 mb-3">📋 {meal.planned_description}</p>
+                <p className="text-xs text-gray-500 mb-2">📋 {meal.planned_description}</p>
+
+                {/* Recipe button */}
+                <button onClick={(e) => { e.stopPropagation(); setRecipeModal({ mealName: meal.meal_name, description: meal.planned_description, macros: todayPlan?.meals?.find((m: any) => m.meal === meal.meal_name)?.macros }); }} className="w-full py-2 mb-3 bg-white border border-teal-200 text-teal-700 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5">
+                  👨‍🍳 Ver receita e modo de preparo
+                </button>
 
                 {/* Quick action buttons */}
                 <div className="grid grid-cols-3 gap-2 mb-3">
@@ -398,6 +405,9 @@ export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: an
       {todayMeals.length > 0 && !checkin?.day_closed && (
         <button onClick={() => setShowCloseDay(true)} className="w-full mt-6 py-4 border-2 border-dashed border-gray-200 rounded-2xl text-sm text-gray-500 font-medium hover:border-teal-300 hover:text-teal-600 transition-colors">Encerrar o dia</button>
       )}
+
+      {/* Recipe Modal */}
+      {recipeModal && <RecipeModal mealName={recipeModal.mealName} description={recipeModal.description} macros={recipeModal.macros} onClose={() => setRecipeModal(null)} />}
     </div>
   );
 }

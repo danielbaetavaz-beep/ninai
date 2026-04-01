@@ -212,7 +212,7 @@ export default function JourneyTab({ plan }: { plan: any }) {
           </div>
 
           {/* Tile rows */}
-          <div className="relative z-10 py-6 px-2">
+          <div className="relative z-10 pt-16 pb-6 px-2">
             {rows.map((row, rowIdx) => {
               const goingRight = rowIdx % 2 === 0;
               const displayRow = goingRight ? row : [...row].reverse();
