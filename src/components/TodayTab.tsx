@@ -18,6 +18,7 @@ export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: an
   const [saving, setSaving] = useState(false);
   const [showCloseDay, setShowCloseDay] = useState(false);
   const [closingDay, setClosingDay] = useState(false);
+  const [showDescribe, setShowDescribe] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -95,6 +96,51 @@ export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: an
   async function skipMeal(mealName: string) {
     await saveMeal(mealName, { planned_description: todayMeals.find(m => m.meal_name === mealName)?.planned_description || '', completed: false, flag: 'red', feedback: 'Refeição não realizada', macros: { protein_g: 0, carbs_g: 0, fat_g: 0, calories: 0 } });
     setExpandedMeal(null);
+    await loadToday();
+  }
+
+  // Quick register with one tap
+  async function quickRegister(meal: any, flag: 'green' | 'yellow' | 'red') {
+    const planned = meal.planned_description || '';
+    const plannedMacros = todayPlan?.meals?.find((m: any) => m.meal === meal.meal_name)?.macros || {};
+    
+    if (flag === 'green') {
+      // 100% of planned macros
+      await saveMeal(meal.meal_name, {
+        planned_description: planned,
+        actual_description: planned,
+        flag: 'green',
+        feedback: 'Refeição realizada como planejado',
+        macros: plannedMacros,
+        completed: true,
+      });
+    } else if (flag === 'yellow') {
+      // 50% of planned macros
+      await saveMeal(meal.meal_name, {
+        planned_description: planned,
+        actual_description: 'Parcialmente realizada',
+        flag: 'yellow',
+        feedback: 'Refeição parcialmente realizada',
+        macros: {
+          protein_g: Math.round((plannedMacros.protein_g || 0) * 0.5),
+          carbs_g: Math.round((plannedMacros.carbs_g || 0) * 0.5),
+          fat_g: Math.round((plannedMacros.fat_g || 0) * 0.5),
+          calories: Math.round((plannedMacros.calories || 0) * 0.5),
+        },
+        completed: true,
+      });
+    } else {
+      // Red = not done, 0 macros
+      await saveMeal(meal.meal_name, {
+        planned_description: planned,
+        completed: false,
+        flag: 'red',
+        feedback: 'Refeição não realizada',
+        macros: { protein_g: 0, carbs_g: 0, fat_g: 0, calories: 0 },
+      });
+    }
+    setExpandedMeal(null);
+    setShowDescribe(null);
     await loadToday();
   }
 
@@ -211,7 +257,7 @@ export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: an
         const isSkipped = meal.completed === false;
         return (
           <div key={i} className="mb-2">
-            <div onClick={() => { if (!confirmData) { setExpandedMeal(expandedMeal === meal.meal_name ? null : meal.meal_name); setMealDescription(''); } }} className="flex items-center gap-2 p-3 border border-gray-100 rounded-xl cursor-pointer">
+            <div onClick={() => { if (!confirmData) { setExpandedMeal(expandedMeal === meal.meal_name ? null : meal.meal_name); setMealDescription(''); setShowDescribe(null); } }} className="flex items-center gap-2 p-3 border border-gray-100 rounded-xl cursor-pointer">
               <div className={`w-2.5 h-2.5 rounded-full ${meal.flag ? flagColor[meal.flag] : 'bg-gray-200'}`} />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">{meal.meal_name}</p>
@@ -223,24 +269,50 @@ export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: an
             </div>
             {expandedMeal === meal.meal_name && !confirmData && !isCompleted && !isSkipped && (
               <div className="p-3 rounded-xl mt-1 bg-gray-50">
-                <p className="text-sm font-medium mb-1">Registrar {meal.meal_name.toLowerCase()}</p>
-                <p className="text-xs text-gray-500 mb-3">Plano: {meal.planned_description}</p>
-                <div className="flex gap-2 mb-3">
-                  <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) handlePhotoUpload(meal.meal_name, e.target.files[0]); }} />
-                  <button onClick={() => fileRef.current?.click()} disabled={uploading} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-xl text-xs text-gray-600 disabled:opacity-50">
-                    📷 {uploading ? 'Salvando...' : meal.photo_url ? '✓ Foto' : 'Foto'}
+                <p className="text-xs text-gray-500 mb-3">📋 {meal.planned_description}</p>
+
+                {/* Quick action buttons */}
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <button onClick={() => quickRegister(meal, 'green')} className="py-3 bg-green-100 text-green-800 rounded-xl text-xs font-medium active:bg-green-200 touch-manipulation">
+                    <span className="block text-lg mb-0.5">✅</span>
+                    Fiz como planejado
+                  </button>
+                  <button onClick={() => quickRegister(meal, 'yellow')} className="py-3 bg-amber-100 text-amber-800 rounded-xl text-xs font-medium active:bg-amber-200 touch-manipulation">
+                    <span className="block text-lg mb-0.5">🟡</span>
+                    Quase lá
+                  </button>
+                  <button onClick={() => quickRegister(meal, 'red')} className="py-3 bg-red-100 text-red-800 rounded-xl text-xs font-medium active:bg-red-200 touch-manipulation">
+                    <span className="block text-lg mb-0.5">❌</span>
+                    Não fiz
                   </button>
                 </div>
-                <div className="flex items-end gap-2 mb-3">
-                  <button onClick={toggleMealRecording} className={`p-2 rounded-full shrink-0 ${isRecording ? 'bg-red-400 text-white animate-pulse' : 'bg-gray-100 text-gray-500'}`}>
-                    {isRecording ? '⏹' : '🎤'}
+
+                {/* Optional: describe what you actually ate */}
+                {!showDescribe && (
+                  <button onClick={() => setShowDescribe(meal.meal_name)} className="w-full py-2 text-xs text-gray-400 border border-dashed border-gray-200 rounded-xl">
+                    Ou descrever o que comi...
                   </button>
-                  <textarea value={mealDescription} onChange={e => setMealDescription(e.target.value)} placeholder="Descreva o que comeu..." className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400 resize-none" rows={2} />
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => analyzeMealDescription(meal.meal_name)} disabled={!mealDescription.trim() || analyzing} className="flex-1 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50">{analyzing ? 'Analisando...' : 'Realizada ✓'}</button>
-                  <button onClick={() => skipMeal(meal.meal_name)} className="px-4 py-3 border border-red-200 text-red-500 rounded-xl text-sm">Não fiz</button>
-                </div>
+                )}
+
+                {showDescribe === meal.meal_name && (
+                  <div className="mt-2">
+                    <div className="flex gap-2 mb-2">
+                      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => { if (e.target.files?.[0]) handlePhotoUpload(meal.meal_name, e.target.files[0]); }} />
+                      <button onClick={() => fileRef.current?.click()} disabled={uploading} className="flex items-center gap-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-[10px] text-gray-500 disabled:opacity-50">
+                        📷 {uploading ? '...' : meal.photo_url ? '✓' : 'Foto'}
+                      </button>
+                    </div>
+                    <div className="flex items-end gap-2 mb-2">
+                      <button onClick={toggleMealRecording} className={`p-2 rounded-full shrink-0 ${isRecording ? 'bg-red-400 text-white animate-pulse' : 'bg-gray-100 text-gray-500'}`}>
+                        {isRecording ? '⏹' : '🎤'}
+                      </button>
+                      <textarea value={mealDescription} onChange={e => setMealDescription(e.target.value)} placeholder="O que você comeu?" className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400 resize-none" rows={2} />
+                    </div>
+                    <button onClick={() => analyzeMealDescription(meal.meal_name)} disabled={!mealDescription.trim() || analyzing} className="w-full py-2.5 bg-teal-400 text-white rounded-xl text-xs font-medium disabled:opacity-50">
+                      {analyzing ? 'Analisando...' : 'Analisar e registrar'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             {expandedMeal === meal.meal_name && (isCompleted || isSkipped) && (
