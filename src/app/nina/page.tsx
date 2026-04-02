@@ -96,29 +96,31 @@ export default function NinaPanel() {
   const pending = patients.filter(p => p.status === 'pending_review' || p.status === 'consultation_requested');
 
   return (
-    <div className="min-h-screen">
-      <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-        <h1 className="text-lg font-medium">nin<span className="text-teal-400">AI</span> <span className="text-gray-400 text-sm">— Nina</span></h1>
-        <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/'; }} className="text-xs text-gray-400">Sair</button>
+    <div className="relative" style={{ height: '100dvh', overflow: 'hidden' }}>
+      {/* Fixed header */}
+      <div id="nina-header" className="fixed top-0 left-0 right-0 z-30 max-w-md mx-auto transition-all duration-200" style={{ background: 'rgba(255,255,255,1)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
+        <div className="p-4 flex items-center justify-between">
+          <h1 className="text-lg font-medium">nin<span className="text-teal-400">AI</span> <span className="text-gray-400 text-sm">— Nina</span></h1>
+          <button onClick={async () => { await supabase.auth.signOut(); window.location.href = '/'; }} className="text-xs text-gray-400">Sair</button>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-100 px-4">
-        {[
-          { id: 'dashboard' as const, label: 'Visão geral' },
-          { id: 'patients' as const, label: 'Pacientes' },
-          { id: 'chat' as const, label: 'Mensagens' },
-          { id: 'materials' as const, label: 'Materiais' },
-        ].map(t => {
-          const totalUnread = t.id === 'chat' ? Object.values(unreadByPlan).reduce((s, n) => s + n, 0) : 0;
-          return (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`px-3 py-2.5 text-xs font-medium border-b-2 relative ${tab === t.id ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>
-              {t.label}
-              {totalUnread > 0 && <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">{totalUnread}</span>}
-            </button>
-          );
-        })}
-      </div>
+      {/* Scrollable content */}
+      <div className="overflow-y-auto" style={{ height: '100dvh', paddingTop: '60px', paddingBottom: '70px' }}
+        onScroll={(e) => {
+          const header = document.getElementById('nina-header');
+          const scrollTop = (e.target as HTMLDivElement).scrollTop;
+          if (header) {
+            if (scrollTop > 20) {
+              header.style.background = 'rgba(255,255,255,0.85)';
+              header.style.borderBottom = '0.5px solid rgba(0,0,0,0.06)';
+            } else {
+              header.style.background = 'rgba(255,255,255,1)';
+              header.style.borderBottom = 'none';
+            }
+          }
+        }}
+      >
 
       {/* DASHBOARD TAB */}
       {tab === 'dashboard' && (
@@ -265,6 +267,54 @@ export default function NinaPanel() {
           )}
         </div>
       )}
+      </div>
+
+      {/* Fixed bottom nav with icons */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-100 max-w-md mx-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+        <div className="flex justify-around py-1.5">
+          {([
+            { id: 'dashboard' as const, label: 'Visão geral', icon: (a: boolean) => (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="3" width="8" height="8" rx="2" fill={a ? '#1D9E75' : '#d0d0d0'} opacity={a ? 1 : 0.6}/>
+                <rect x="13" y="3" width="8" height="8" rx="2" fill={a ? '#1D9E75' : '#d0d0d0'} opacity={a ? 0.7 : 0.4}/>
+                <rect x="3" y="13" width="8" height="8" rx="2" fill={a ? '#1D9E75' : '#d0d0d0'} opacity={a ? 0.7 : 0.4}/>
+                <rect x="13" y="13" width="8" height="8" rx="2" fill={a ? '#1D9E75' : '#d0d0d0'} opacity={a ? 0.5 : 0.3}/>
+              </svg>
+            )},
+            { id: 'patients' as const, label: 'Pacientes', icon: (a: boolean) => (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="8" r="4" fill={a ? '#1D9E75' : '#d0d0d0'} opacity={a ? 1 : 0.6}/>
+                <path d="M4 20C4 16.69 7.58 14 12 14C16.42 14 20 16.69 20 20" stroke={a ? '#1D9E75' : '#d0d0d0'} strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            )},
+            { id: 'chat' as const, label: 'Mensagens', icon: (a: boolean) => {
+              const totalUnread = Object.values(unreadByPlan).reduce((s: number, n: number) => s + n, 0);
+              return (
+                <div className="relative">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path d="M4 4H20C21.1 4 22 4.9 22 6V16C22 17.1 21.1 18 20 18H8L4 22V6C4 4.9 4.9 4 6 4H4Z" fill={a ? '#1D9E75' : '#d0d0d0'} opacity={a ? 1 : 0.6}/>
+                    <circle cx="9" cy="11" r="1" fill="white"/><circle cx="13" cy="11" r="1" fill="white"/><circle cx="17" cy="11" r="1" fill="white"/>
+                  </svg>
+                  {totalUnread > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center">{totalUnread}</span>}
+                </div>
+              );
+            }},
+            { id: 'materials' as const, label: 'Materiais', icon: (a: boolean) => (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path d="M6 2H14L20 8V22H6C4.9 22 4 21.1 4 20V4C4 2.9 4.9 2 6 2Z" fill={a ? '#1D9E75' : '#d0d0d0'} opacity={a ? 1 : 0.6}/>
+                <path d="M14 2V8H20" stroke="white" strokeWidth="1.5"/>
+                <line x1="8" y1="13" x2="16" y2="13" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="8" y1="17" x2="13" y2="17" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            )},
+          ]).map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center py-1 px-3 touch-manipulation" style={{ WebkitTapHighlightColor: 'transparent' }}>
+              {t.icon(tab === t.id)}
+              <span className={`text-[10px] mt-0.5 font-medium ${tab === t.id ? 'text-teal-500' : 'text-gray-400'}`}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
