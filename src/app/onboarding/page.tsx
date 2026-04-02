@@ -165,13 +165,21 @@ export default function Onboarding() {
     const u = { ...planData }; u.exercise_plan_base = { ...u.exercise_plan_base, [field]: value }; setPlanData(u);
   }
 
+  async function generateMonthlyPlan(): Promise<any> {
+    const allRestrictions = [...restrictions, ...(otherRestriction ? [otherRestriction] : [])];
+    const res = await fetch('/api/generate-monthly-plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mealPlanBase: planData.meal_plan_base, exercisePlanBase: planData.exercise_plan_base, goals: planData.goals, restrictions: allRestrictions.join(', ') || 'nenhuma' }),
+    });
+    const data = await res.json();
+    return data.monthlyPlan;
+  }
+
   async function submitToNina() {
     if (!planId || !planData) return; setLoading(true);
     const sched = buildScheduleFromWeekly();
-    await supabase.from('plans').update({ status: 'pending_review', duration_months: planData.duration_months, goals: planData.goals, meal_plan_base: planData.meal_plan_base, exercise_plan_base: planData.exercise_plan_base, scientific_rationale: planData.scientific_rationale, initial_schedule: sched }).eq('id', planId);
-    const res = await fetch('/api/generate-daily-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: sched, mealPlanBase: planData.meal_plan_base, exercisePlanBase: planData.exercise_plan_base, goals: planData.goals }) });
-    const detailedPlan = await res.json();
-    await supabase.from('plans').update({ detailed_plan: detailedPlan }).eq('id', planId);
+    const monthlyPlan = await generateMonthlyPlan();
+    await supabase.from('plans').update({ status: 'pending_review', duration_months: planData.duration_months, goals: planData.goals, meal_plan_base: planData.meal_plan_base, exercise_plan_base: planData.exercise_plan_base, scientific_rationale: planData.scientific_rationale, initial_schedule: sched, monthly_plan: monthlyPlan }).eq('id', planId);
     const { data: { session } } = await supabase.auth.getSession();
     if (session) await supabase.from('alerts').insert({ patient_id: session.user.id, plan_id: planId, type: 'plan_ready', message: 'Novo plano pronto para revisão' });
     setStep('finish'); setLoading(false);
@@ -180,11 +188,9 @@ export default function Onboarding() {
   async function submitAutoGenerate() {
     if (!planId || !planData) return; setLoading(true);
     const sched = buildScheduleFromWeekly();
-    const res = await fetch('/api/generate-daily-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: sched, mealPlanBase: planData.meal_plan_base, exercisePlanBase: planData.exercise_plan_base, goals: planData.goals }) });
-    const detailedPlan = await res.json();
-    await supabase.from('plans').update({ status: 'approved', approved_at: new Date().toISOString(), start_date: getLocalToday(), duration_months: planData.duration_months, goals: planData.goals, meal_plan_base: planData.meal_plan_base, exercise_plan_base: planData.exercise_plan_base, scientific_rationale: planData.scientific_rationale, initial_schedule: sched, detailed_plan: detailedPlan }).eq('id', planId);
+    const monthlyPlan = await generateMonthlyPlan();
+    await supabase.from('plans').update({ status: 'approved', approved_at: new Date().toISOString(), start_date: getLocalToday(), duration_months: planData.duration_months, goals: planData.goals, meal_plan_base: planData.meal_plan_base, exercise_plan_base: planData.exercise_plan_base, scientific_rationale: planData.scientific_rationale, initial_schedule: sched, monthly_plan: monthlyPlan }).eq('id', planId);
     for (const day of sched) await supabase.from('daily_schedule').upsert({ plan_id: planId, date: day.date, morning: day.morning, afternoon: day.afternoon, evening: day.evening, has_gym: day.has_gym }, { onConflict: 'plan_id,date' });
-    if (detailedPlan.days) for (const day of detailedPlan.days) await supabase.from('daily_plans').upsert({ plan_id: planId, date: day.date, meals: day.meals, exercise: day.exercise, status: 'active' }, { onConflict: 'plan_id,date' });
     setStep('finish'); setLoading(false);
   }
 
