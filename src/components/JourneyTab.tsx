@@ -151,7 +151,14 @@ export default function JourneyTab({ plan }: { plan: any }) {
   useEffect(() => { loadJourney(); }, []);
   useEffect(() => {
     if (!loading && todayRef.current) {
-      setTimeout(() => { todayRef.current?.scrollIntoView({ behavior: 'auto', block: 'center' }); }, 100);
+      setTimeout(() => {
+        const container = document.getElementById('app-content');
+        if (container && todayRef.current) {
+          const rect = todayRef.current.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          container.scrollTop = container.scrollTop + rect.top - containerRect.top - containerRect.height / 2;
+        }
+      }, 200);
     }
   }, [loading]);
 
@@ -274,7 +281,7 @@ export default function JourneyTab({ plan }: { plan: any }) {
       </div>
 
       {/* Board */}
-      <div ref={scrollRef} className="overflow-y-auto" style={{ height: 'calc(100dvh - 190px)' }}>
+      <div ref={scrollRef}>
         <div className="relative min-h-full">
           {/* Background layers */}
           <div className="absolute inset-0 flex">

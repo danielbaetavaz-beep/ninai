@@ -112,18 +112,39 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="flex flex-col" style={{ minHeight: '100dvh' }}>
-      <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-        <h1 className="text-lg font-medium">nin<span className="text-teal-400">AI</span></h1>
-        {profile && <UserMenu profile={profile} plan={plan} />}
+    <div className="relative" style={{ height: '100dvh', overflow: 'hidden' }}>
+      {/* Fixed header — becomes translucent on scroll */}
+      <div id="app-header" className="fixed top-0 left-0 right-0 z-30 max-w-md mx-auto transition-all duration-200" style={{ background: 'rgba(255,255,255,1)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
+        <div className="p-4 flex items-center justify-between">
+          <h1 className="text-lg font-medium">nin<span className="text-teal-400">AI</span></h1>
+          {profile && <UserMenu profile={profile} plan={plan} />}
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto pb-16">
+
+      {/* Scrollable content */}
+      <div id="app-content" className="overflow-y-auto" style={{ height: '100dvh', paddingTop: '60px', paddingBottom: '70px' }}
+        onScroll={(e) => {
+          const header = document.getElementById('app-header');
+          const scrollTop = (e.target as HTMLDivElement).scrollTop;
+          if (header) {
+            if (scrollTop > 20) {
+              header.style.background = 'rgba(255,255,255,0.85)';
+              header.style.borderBottom = '0.5px solid rgba(0,0,0,0.06)';
+            } else {
+              header.style.background = 'rgba(255,255,255,1)';
+              header.style.borderBottom = 'none';
+            }
+          }
+        }}
+      >
         {tab === 'jornada' && <JourneyTab plan={plan} />}
         {tab === 'hoje' && <TodayTab plan={plan} todayPlan={todayPlan} />}
         {tab === 'programacao' && <ScheduleTab plan={plan} onPlanGenerated={loadData} />}
         {tab === 'compras' && <GroceryTab plan={plan} />}
         {tab === 'chat' && <ChatTab plan={plan} />}
       </div>
+
+      {/* Fixed bottom nav */}
       <BottomNav tab={tab} setTab={setTab} profileName={profile?.name} />
     </div>
   );
