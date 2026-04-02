@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     // Also clean any other non-Nina users
     const { data: allUsers } = await supabase.auth.admin.listUsers();
     for (const u of (allUsers?.users || [])) {
-      if (u.email === 'izagiffoni@hotmail.com') continue;
+      if (u.email === 'ninai@gmail.com') continue;
       if (DEMO_PATIENTS.some(d => d.email === u.email)) continue;
       // Clean this user
       const { data: plans } = await supabase.from('plans').select('id').eq('patient_id', u.id);
@@ -294,7 +294,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create a welcome bulletin post from Nina
-    const { data: ninaProfile } = await supabase.from('profiles').select('id').eq('email', 'izagiffoni@hotmail.com').single();
+    const { data: ninaProfile } = await supabase.from('profiles').select('id').eq('email', 'ninai@gmail.com').single();
     if (ninaProfile) {
       await supabase.from('bulletin_posts').insert({
         author_id: ninaProfile.id,

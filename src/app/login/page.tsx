@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
-const NINA_EMAIL = 'izagiffoni@hotmail.com';
+const NINA_EMAIL = 'ninai@gmail.com';
 
 export default function Login() {
   const [email, setEmail] = useState('');
