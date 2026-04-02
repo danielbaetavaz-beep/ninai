@@ -106,7 +106,7 @@ export default function BulletinTab() {
 
                 {/* Action button */}
                 {post.action_label && post.action_url && (
-                  <a href={post.action_url} target="_blank" rel="noopener noreferrer" className="block mt-3 py-2.5 text-center bg-teal-400 text-white rounded-xl text-xs font-medium">
+                  <a href={post.action_url.startsWith('http') ? post.action_url : `https://${post.action_url}`} target="_blank" rel="noopener noreferrer" className="block mt-3 py-2.5 text-center bg-teal-400 text-white rounded-xl text-xs font-medium">
                     {post.action_label}
                   </a>
                 )}
