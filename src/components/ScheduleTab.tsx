@@ -3,8 +3,9 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getLocalToday, toLocalDateStr } from '@/lib/dates';
 import RecipeModal from '@/components/RecipeModal';
+import GroceryTab from '@/components/GroceryTab';
 
-export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPlanGenerated: () => void }) {
+export default function ScheduleTab({ plan, onPlanGenerated, showGrocery }: { plan: any; onPlanGenerated: () => void; showGrocery?: boolean }) {
   const [schedules, setSchedules] = useState<any[]>([]);
   const [dailyPlans, setDailyPlans] = useState<any[]>([]);
   const [pastSchedules, setPastSchedules] = useState<any[]>([]);
@@ -13,7 +14,7 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [recipeModal, setRecipeModal] = useState<{ mealName: string; description: string; macros?: any } | null>(null);
-  const [viewMode, setViewMode] = useState<'future' | 'past'>('future');
+  const [viewMode, setViewMode] = useState<'future' | 'past' | 'compras'>(showGrocery ? 'compras' : 'future');
 
   const todayStr = getLocalToday();
   const dayLabels = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
@@ -154,10 +155,13 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
       {/* Sub-tabs */}
       <div className="flex gap-2 mb-4">
         <button onClick={() => setViewMode('future')} className={`flex-1 py-2 rounded-xl text-xs font-medium ${viewMode === 'future' ? 'bg-teal-400 text-white' : 'bg-gray-100 text-gray-500'}`}>
-          Próximos 14 dias
+          Próximos dias
         </button>
         <button onClick={() => setViewMode('past')} className={`flex-1 py-2 rounded-xl text-xs font-medium ${viewMode === 'past' ? 'bg-teal-400 text-white' : 'bg-gray-100 text-gray-500'}`}>
-          Últimos 7 dias
+          Passados
+        </button>
+        <button onClick={() => setViewMode('compras')} className={`flex-1 py-2 rounded-xl text-xs font-medium ${viewMode === 'compras' ? 'bg-teal-400 text-white' : 'bg-gray-100 text-gray-500'}`}>
+          Compras
         </button>
       </div>
 
@@ -353,6 +357,9 @@ export default function ScheduleTab({ plan, onPlanGenerated }: { plan: any; onPl
           </div>
         );
       })}
+
+      {/* COMPRAS VIEW */}
+      {viewMode === 'compras' && <GroceryTab plan={plan} />}
 
       {/* Recipe Modal */}
       {recipeModal && <RecipeModal mealName={recipeModal.mealName} description={recipeModal.description} macros={recipeModal.macros} onClose={() => setRecipeModal(null)} />}

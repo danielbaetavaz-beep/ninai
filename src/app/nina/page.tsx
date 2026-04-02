@@ -162,6 +162,12 @@ export default function NinaPanel() {
             );
           })}
           {patients.filter(p => p.status === 'approved').length === 0 && <p className="text-xs text-gray-400 text-center py-4">Nenhum paciente ativo para conversar</p>}
+
+          {/* Bulletin / Mural section */}
+          <div className="mt-6 border-t border-gray-100 pt-4">
+            <p className="text-sm font-medium mb-3">Publicar no Mural</p>
+            <BulletinComposer patients={patients.filter((p: any) => p.status === 'approved')} profile={profile} />
+          </div>
         </div>
       )}
 
@@ -1065,6 +1071,174 @@ function NinaDashboard({ patients, activePlans, pending, alerts, patientStats, u
           <p className="text-xs text-gray-400 mt-1">Quando seus pacientes criarem planos, eles aparecerão aqui.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+// Bulletin composer for Nina to create mural posts
+function BulletinComposer({ patients, profile }: { patients: any[]; profile: any }) {
+  const [postType, setPostType] = useState('aviso');
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [actionLabel, setActionLabel] = useState('');
+  const [actionUrl, setActionUrl] = useState('');
+  const [sendAsMessage, setSendAsMessage] = useState(false);
+  const [audience, setAudience] = useState('all');
+  const [selectedPatients, setSelectedPatients] = useState<Set<string>>(new Set());
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [attachFile, setAttachFile] = useState<File | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState(false);
+
+  const types = [
+    { id: 'promo', label: 'Promoção', icon: '🏷️' },
+    { id: 'conteudo', label: 'Conteúdo', icon: '📚' },
+    { id: 'aviso', label: 'Aviso', icon: '📢' },
+    { id: 'receita', label: 'Receita', icon: '👨‍🍳' },
+    { id: 'evento', label: 'Evento', icon: '📅' },
+    { id: 'produto', label: 'Produto', icon: '🎁' },
+  ];
+
+  function togglePatient(id: string) {
+    setSelectedPatients(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
+
+  async function publish() {
+    if (!title.trim() || !content.trim()) return;
+    setPublishing(true);
+
+    let imageUrl = '';
+    let attachUrl = '';
+    let attachName = '';
+
+    if (imageFile) {
+      const fn = `bulletin/${Date.now()}_${imageFile.name}`;
+      await supabase.storage.from('nina-materials').upload(fn, imageFile);
+      const { data } = supabase.storage.from('nina-materials').getPublicUrl(fn);
+      imageUrl = data.publicUrl;
+    }
+    if (attachFile) {
+      const fn = `bulletin/${Date.now()}_${attachFile.name}`;
+      await supabase.storage.from('nina-materials').upload(fn, attachFile);
+      const { data } = supabase.storage.from('nina-materials').getPublicUrl(fn);
+      attachUrl = data.publicUrl;
+      attachName = attachFile.name;
+    }
+
+    const audienceIds = audience === 'selected' ? Array.from(selectedPatients) : [];
+
+    await supabase.from('bulletin_posts').insert({
+      author_id: profile.id,
+      post_type: postType,
+      title: title.trim(),
+      content: content.trim(),
+      image_url: imageUrl || null,
+      attachment_url: attachUrl || null,
+      attachment_name: attachName || null,
+      action_label: actionLabel.trim() || null,
+      action_url: actionUrl.trim() || null,
+      audience: audience === 'selected' ? 'selected' : 'all',
+      audience_ids: audienceIds,
+      send_as_message: sendAsMessage,
+    });
+
+    // If send as message, create direct messages too
+    if (sendAsMessage) {
+      const targetPatients = audience === 'selected'
+        ? patients.filter((p: any) => selectedPatients.has(p.patient_id))
+        : patients;
+      for (const p of targetPatients) {
+        await supabase.from('direct_messages').insert({
+          plan_id: p.id,
+          sender_id: profile.id,
+          sender_role: 'nutritionist',
+          content: `📢 ${title}\n\n${content}${actionUrl ? `\n\n${actionLabel}: ${actionUrl}` : ''}`,
+        });
+      }
+    }
+
+    setPublishing(false);
+    setPublished(true);
+    setTitle(''); setContent(''); setActionLabel(''); setActionUrl('');
+    setImageFile(null); setAttachFile(null);
+    setTimeout(() => setPublished(false), 3000);
+  }
+
+  if (published) {
+    return (
+      <div className="bg-green-50 rounded-xl p-4 text-center">
+        <p className="text-sm font-medium text-green-800">Publicado com sucesso!</p>
+        <p className="text-xs text-green-600 mt-1">{sendAsMessage ? 'Post no mural + mensagem enviada' : 'Post publicado no mural'}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+      {/* Post type */}
+      <div className="flex flex-wrap gap-1.5">
+        {types.map(t => (
+          <button key={t.id} onClick={() => setPostType(t.id)} className={`px-2.5 py-1.5 rounded-lg text-[10px] font-medium ${postType === t.id ? 'bg-teal-400 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}>
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Title */}
+      <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Título da publicação" className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400" />
+
+      {/* Content */}
+      <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Escreva sua mensagem..." className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-teal-400 resize-none" rows={3} />
+
+      {/* Attachments */}
+      <div className="flex gap-2">
+        <label className="flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-[10px] text-gray-600 cursor-pointer">
+          🖼 {imageFile ? imageFile.name.slice(0, 15) : 'Imagem'}
+          <input type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && setImageFile(e.target.files[0])} />
+        </label>
+        <label className="flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-[10px] text-gray-600 cursor-pointer">
+          📎 {attachFile ? attachFile.name.slice(0, 15) : 'Arquivo'}
+          <input type="file" className="hidden" onChange={e => e.target.files?.[0] && setAttachFile(e.target.files[0])} />
+        </label>
+      </div>
+
+      {/* Action button (optional) */}
+      <div className="flex gap-2">
+        <input value={actionLabel} onChange={e => setActionLabel(e.target.value)} placeholder="Botão (ex: Saiba mais)" className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs focus:outline-none" />
+        <input value={actionUrl} onChange={e => setActionUrl(e.target.value)} placeholder="Link do botão" className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs focus:outline-none" />
+      </div>
+
+      {/* Audience */}
+      <div>
+        <p className="text-[10px] text-gray-500 mb-1.5">Audiência</p>
+        <div className="flex gap-2 mb-2">
+          <button onClick={() => setAudience('all')} className={`flex-1 py-2 rounded-lg text-xs font-medium ${audience === 'all' ? 'bg-teal-400 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}>Todos</button>
+          <button onClick={() => setAudience('selected')} className={`flex-1 py-2 rounded-lg text-xs font-medium ${audience === 'selected' ? 'bg-teal-400 text-white' : 'bg-white text-gray-600 border border-gray-200'}`}>Selecionar</button>
+        </div>
+        {audience === 'selected' && (
+          <div className="space-y-1 max-h-32 overflow-y-auto">
+            {patients.map((p: any) => (
+              <button key={p.id} onClick={() => togglePatient(p.patient_id)} className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs ${selectedPatients.has(p.patient_id) ? 'bg-teal-50 text-teal-700' : 'bg-white text-gray-600'}`}>
+                <div className={`w-4 h-4 rounded border ${selectedPatients.has(p.patient_id) ? 'bg-teal-400 border-teal-400' : 'border-gray-300'} flex items-center justify-center`}>
+                  {selectedPatients.has(p.patient_id) && <span className="text-white text-[8px]">✓</span>}
+                </div>
+                {(p as any).profiles?.name || 'Paciente'}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Send as message too */}
+      <label className="flex items-center gap-2 text-xs text-gray-600">
+        <input type="checkbox" checked={sendAsMessage} onChange={e => setSendAsMessage(e.target.checked)} className="rounded" />
+        Enviar também como mensagem direta
+      </label>
+
+      {/* Publish */}
+      <button onClick={publish} disabled={!title.trim() || !content.trim() || publishing} className="w-full py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50">
+        {publishing ? 'Publicando...' : 'Publicar no Mural'}
+      </button>
     </div>
   );
 }

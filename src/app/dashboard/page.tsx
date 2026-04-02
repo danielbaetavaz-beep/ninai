@@ -9,6 +9,7 @@ import ScheduleTab from '@/components/ScheduleTab';
 import PlanTab from '@/components/PlanTab';
 import ChatTab from '@/components/ChatTab';
 import GroceryTab from '@/components/GroceryTab';
+import BulletinTab from '@/components/BulletinTab';
 import ProfileTab from '@/components/ProfileTab';
 
 export default function Dashboard() {
@@ -141,6 +142,7 @@ export default function Dashboard() {
         {tab === 'hoje' && <TodayTab plan={plan} todayPlan={todayPlan} />}
         {tab === 'programacao' && <ScheduleTab plan={plan} onPlanGenerated={loadData} />}
         {tab === 'compras' && <GroceryTab plan={plan} />}
+        {tab === 'mural' && <BulletinTab />}
         {tab === 'chat' && <ChatTab plan={plan} />}
       </div>
 
@@ -178,12 +180,14 @@ function BottomNav({ tab, setTab, profileName }: { tab: string; setTab: (t: stri
         <line x1="8" y1="16" x2="13" y2="16" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     )},
-    { id: 'compras', label: 'Compras', icon: (active: boolean) => (
+    { id: 'mural', label: 'Mural', icon: (active: boolean) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <path d="M6 6H4L2 20H22L20 6H18" stroke={active ? '#1D9E75' : '#d0d0d0'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M6 6C6 3.79 8.69 2 12 2C15.31 2 18 3.79 18 6" stroke={active ? '#1D9E75' : '#d0d0d0'} strokeWidth="2"/>
-        <circle cx="9" cy="13" r="1.5" fill={active ? '#1D9E75' : '#d0d0d0'}/>
-        <circle cx="15" cy="13" r="1.5" fill={active ? '#1D9E75' : '#d0d0d0'}/>
+        <rect x="3" y="3" width="18" height="18" rx="3" fill={active ? '#1D9E75' : '#d0d0d0'} opacity={active ? 1 : 0.6}/>
+        <circle cx="8" cy="9" r="2" fill="white" opacity="0.9"/>
+        <rect x="12" y="7" width="6" height="1.5" rx="0.75" fill="white" opacity="0.7"/>
+        <rect x="12" y="10" width="4" height="1.5" rx="0.75" fill="white" opacity="0.5"/>
+        <rect x="6" y="14" width="12" height="1.5" rx="0.75" fill="white" opacity="0.5"/>
+        <rect x="6" y="17" width="8" height="1.5" rx="0.75" fill="white" opacity="0.4"/>
       </svg>
     )},
     { id: 'chat', label: 'Chat', icon: (active: boolean) => (
