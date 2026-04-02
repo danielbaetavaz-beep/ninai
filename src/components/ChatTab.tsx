@@ -66,7 +66,7 @@ export default function ChatTab({ plan }: { plan: any }) {
   const messages = chatMode === 'ai' ? aiMessages : ninaMessages;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-120px)]">
+    <div className="flex flex-col" style={{ height: 'calc(100dvh - 130px)' }}>
       {/* Mode toggle */}
       <div className="flex border-b border-gray-100 px-4">
         <button onClick={() => setChatMode('ai')} className={`flex-1 py-2.5 text-xs font-medium text-center border-b-2 ${chatMode === 'ai' ? 'text-teal-600 border-teal-400' : 'text-gray-400 border-transparent'}`}>

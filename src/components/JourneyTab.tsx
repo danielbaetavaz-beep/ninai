@@ -256,8 +256,8 @@ export default function JourneyTab({ plan }: { plan: any }) {
 
   return (
     <div className="relative">
-      {/* Stats bar */}
-      <div className="flex justify-around py-3 px-2 bg-white border-b border-gray-100">
+      {/* Stats bar — sticky below header */}
+      <div className="sticky top-0 z-20 flex justify-around py-3 px-2 bg-white/95 border-b border-gray-100" style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
         <div className="flex items-center gap-1 text-center">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#639922" strokeWidth="2"/><path d="M12 2a10 10 0 0 1 0 20" fill="#639922" opacity="0.3"/><circle cx="12" cy="12" r="3" fill="#639922"/></svg>
           <div><p className="text-xs font-medium text-green-700">{adherence}%</p><p className="text-[8px] text-gray-400">aderência</p></div>
