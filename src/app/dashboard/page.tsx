@@ -194,7 +194,7 @@ function BottomNav({ tab, setTab, profileName }: { tab: string; setTab: (t: stri
     )},
   ];
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 max-w-md mx-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+    <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-gray-100 max-w-md mx-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       <div className="flex justify-around py-1.5">
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center py-1 px-3 touch-manipulation" style={{ WebkitTapHighlightColor: 'transparent' }}>
