@@ -123,67 +123,7 @@ export default function NinaPanel() {
       >
 
       {/* DASHBOARD TAB */}
-      {tab === 'dashboard' && (
-        <div className="p-4">
-          {/* Alerts */}
-          {alerts.length > 0 && (
-            <div className="mb-4">
-              <p className="text-sm font-medium mb-2">Alertas ({alerts.length})</p>
-              {alerts.map(a => (
-                <div key={a.id} className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-xl mb-2">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-amber-800">{(a as any).profiles?.name || 'Paciente'}</p>
-                    <p className="text-xs text-amber-700">{a.message}</p>
-                  </div>
-                  <button onClick={() => markAlertRead(a.id)} className="text-xs px-3 py-1.5 rounded-full bg-amber-100 text-amber-800">OK</button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Pending reviews */}
-          {pending.length > 0 && (
-            <div className="mb-4">
-              <p className="text-sm font-medium mb-2">Para revisar ({pending.length})</p>
-              {pending.map(p => (
-                <div key={p.id} onClick={() => setSelectedPlan(p)} className="flex items-center gap-3 p-3 border border-teal-200 bg-teal-50 rounded-xl mb-2 cursor-pointer">
-                  <div className="w-8 h-8 rounded-full bg-teal-400 flex items-center justify-center text-white text-sm font-medium">{(p as any).profiles?.name?.[0] || '?'}</div>
-                  <div className="flex-1"><p className="text-sm font-medium text-teal-800">{(p as any).profiles?.name || 'Paciente'}</p><p className="text-xs text-teal-600">Plano para revisar</p></div>
-                  <span className="text-xs text-teal-400">→</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Active patients overview */}
-          <p className="text-sm font-medium mb-2">Pacientes ativos ({activePlans.length})</p>
-          {activePlans.map(p => {
-            const stats = patientStats[p.id] || {};
-            const needsAttention = stats.daysNoRegistration >= 3 || stats.adherence < 30;
-            return (
-              <div key={p.id} onClick={() => setSelectedPlan(p)} className={`p-3 rounded-xl mb-2 cursor-pointer border ${needsAttention ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-sm font-medium">{(p as any).profiles?.name?.[0] || '?'}</div>
-                    <div>
-                      <p className="text-sm font-medium">{(p as any).profiles?.name || 'Paciente'}</p>
-                      {needsAttention && <span className="text-[10px] text-red-500">⚠ precisa de atenção</span>}
-                    </div>
-                  </div>
-                  <div className={`text-lg font-medium ${stats.adherence >= 70 ? 'text-green-600' : stats.adherence >= 40 ? 'text-amber-600' : 'text-red-500'}`}>{stats.adherence || 0}%</div>
-                </div>
-                <div className="grid grid-cols-4 gap-2 text-center">
-                  <div><p className="text-xs font-medium">{stats.greenMeals || 0}/{stats.totalMeals || 0}</p><p className="text-[10px] text-gray-400">verdes</p></div>
-                  <div><p className="text-xs font-medium">{stats.exerciseDone || 0}/{stats.exerciseTotal || 0}</p><p className="text-[10px] text-gray-400">exercício</p></div>
-                  <div><p className="text-xs font-medium">{stats.missedMeals || 0}</p><p className="text-[10px] text-gray-400">puladas</p></div>
-                  <div><p className="text-xs font-medium text-red-500">{stats.daysNoRegistration || 0}</p><p className="text-[10px] text-gray-400">s/ registro</p></div>
-                </div>
-              </div>
-            );
-          })}
-          {activePlans.length === 0 && <p className="text-xs text-gray-400 text-center py-4">Nenhum paciente ativo</p>}
-        </div>
-      )}
+      {tab === 'dashboard' && <NinaDashboard patients={patients} activePlans={activePlans} pending={pending} alerts={alerts} patientStats={patientStats} unreadByPlan={unreadByPlan} onSelectPlan={setSelectedPlan} onMarkAlertRead={markAlertRead} />}
 
       {/* PATIENTS TAB */}
       {tab === 'patients' && (
@@ -288,7 +228,7 @@ export default function NinaPanel() {
               </svg>
             )},
             { id: 'chat' as const, label: 'Mensagens', icon: (a: boolean) => {
-              const totalUnread = Object.values(unreadByPlan).reduce((s: number, n: number) => s + n, 0);
+              const totalUnread = Object.values(unreadByPlan as Record<string, number>).reduce((s, n) => (s as number) + (n as number), 0) as number;
               return (
                 <div className="relative">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -908,6 +848,221 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
             <p className="text-[10px] text-gray-400 text-center mb-4">Remove paciente e todos os dados. Irreversível.</p>
             <button onClick={() => setShowDeleteConfirm(false)} className="w-full py-2.5 border border-gray-200 text-gray-500 rounded-xl text-sm">Cancelar</button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Professional dashboard for Nina
+function NinaDashboard({ patients, activePlans, pending, alerts, patientStats, unreadByPlan, onSelectPlan, onMarkAlertRead }: any) {
+  const [briefing, setBriefing] = useState<string>('');
+  const [loadingBriefing, setLoadingBriefing] = useState(true);
+
+  useEffect(() => { generateBriefing(); }, []);
+
+  async function generateBriefing() {
+    try {
+      const totalUnread = Object.values(unreadByPlan as Record<string, number>).reduce((s, n) => (s as number) + (n as number), 0) as number;
+      const res = await fetch('/api/nina-briefing', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patients: activePlans, patientStats, alerts: alerts.length, pending: pending.length, unreadMessages: totalUnread }),
+      });
+      const data = await res.json();
+      if (data.briefing) setBriefing(data.briefing);
+    } catch {}
+    setLoadingBriefing(false);
+  }
+
+  // Calculate metrics
+  const totalActive = activePlans.length;
+  const avgAdherence = totalActive > 0 ? Math.round(activePlans.reduce((sum: number, p: any) => sum + (patientStats[p.id]?.adherence || 0), 0) / totalActive) : 0;
+  const totalGreenMeals = activePlans.reduce((sum: number, p: any) => sum + (patientStats[p.id]?.greenMeals || 0), 0);
+  const totalExercises = activePlans.reduce((sum: number, p: any) => sum + (patientStats[p.id]?.exerciseDone || 0), 0);
+  const needsAttention = activePlans.filter((p: any) => (patientStats[p.id]?.daysNoRegistration || 0) >= 3 || (patientStats[p.id]?.adherence || 0) < 30).length;
+
+  // Ranking — sorted by adherence
+  const ranked = [...activePlans].sort((a: any, b: any) => (patientStats[b.id]?.adherence || 0) - (patientStats[a.id]?.adherence || 0));
+
+  // Action items count
+  const totalUnread = Object.values(unreadByPlan as Record<string, number>).reduce((s, n) => (s as number) + (n as number), 0) as number;
+  const actionCount = pending.length + alerts.length + (totalUnread > 0 ? 1 : 0);
+
+  return (
+    <div className="p-4">
+
+      {/* AI Briefing */}
+      <div className="bg-gradient-to-br from-teal-50 to-emerald-50 rounded-2xl p-4 mb-4 border border-teal-100">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="w-7 h-7 rounded-full bg-teal-400 flex items-center justify-center">
+            <span className="text-white text-xs font-medium">n</span>
+          </div>
+          <p className="text-xs font-medium text-teal-700">ninAI — Briefing do dia</p>
+        </div>
+        {loadingBriefing ? (
+          <div className="flex items-center gap-2 py-2">
+            <div className="w-4 h-4 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs text-teal-600">Preparando seu resumo...</p>
+          </div>
+        ) : (
+          <p className="text-sm text-teal-900 leading-relaxed">{briefing || 'Bom dia, Nina! Seu dashboard está pronto.'}</p>
+        )}
+      </div>
+
+      {/* Quick metrics */}
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        <div className="bg-white rounded-xl p-2.5 text-center border border-gray-100">
+          <p className={`text-xl font-medium ${avgAdherence >= 70 ? 'text-green-600' : avgAdherence >= 40 ? 'text-amber-600' : 'text-red-500'}`}>{avgAdherence}%</p>
+          <p className="text-[9px] text-gray-400 mt-0.5">aderência média</p>
+        </div>
+        <div className="bg-white rounded-xl p-2.5 text-center border border-gray-100">
+          <p className="text-xl font-medium text-teal-600">{totalActive}</p>
+          <p className="text-[9px] text-gray-400 mt-0.5">pacientes</p>
+        </div>
+        <div className="bg-white rounded-xl p-2.5 text-center border border-gray-100">
+          <p className="text-xl font-medium text-green-600">{totalGreenMeals}</p>
+          <p className="text-[9px] text-gray-400 mt-0.5">refeições verdes</p>
+        </div>
+        <div className="bg-white rounded-xl p-2.5 text-center border border-gray-100">
+          <p className="text-xl font-medium text-blue-600">{totalExercises}</p>
+          <p className="text-[9px] text-gray-400 mt-0.5">exercícios</p>
+        </div>
+      </div>
+
+      {/* Action items */}
+      {actionCount > 0 && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Ações pendentes</p>
+          {pending.map((p: any) => (
+            <div key={p.id} onClick={() => onSelectPlan(p)} className="flex items-center gap-3 p-3 bg-teal-50 border border-teal-200 rounded-xl mb-2 cursor-pointer active:scale-[0.98] transition-transform">
+              <div className="w-9 h-9 rounded-full bg-teal-400 flex items-center justify-center text-white text-sm font-medium">{(p as any).profiles?.name?.[0] || '?'}</div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-teal-800">{(p as any).profiles?.name || 'Paciente'}</p>
+                <p className="text-[10px] text-teal-600">Plano aguardando sua aprovação</p>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="#1D9E75" strokeWidth="2" strokeLinecap="round"/></svg>
+            </div>
+          ))}
+          {alerts.map((a: any) => (
+            <div key={a.id} className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl mb-2">
+              <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 22h20L12 2z" fill="#EF9F27"/><text x="12" y="18" textAnchor="middle" fontSize="12" fill="white" fontWeight="bold">!</text></svg>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-amber-800">{(a as any).profiles?.name || 'Alerta'}</p>
+                <p className="text-[10px] text-amber-700">{a.message}</p>
+              </div>
+              <button onClick={() => onMarkAlertRead(a.id)} className="text-[10px] px-3 py-1.5 rounded-full bg-amber-100 text-amber-800 font-medium">OK</button>
+            </div>
+          ))}
+          {totalUnread > 0 && (
+            <div className="flex items-center gap-3 p-3 bg-purple-50 border border-purple-200 rounded-xl mb-2">
+              <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 4H20C21.1 4 22 4.9 22 6V16C22 17.1 21.1 18 20 18H8L4 22V6C4 4.9 4.9 4 6 4Z" fill="#7F77DD"/><circle cx="9" cy="11" r="1" fill="white"/><circle cx="13" cy="11" r="1" fill="white"/><circle cx="17" cy="11" r="1" fill="white"/></svg>
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-purple-800">{totalUnread} mensagem{totalUnread > 1 ? 'ns' : ''} não lida{totalUnread > 1 ? 's' : ''}</p>
+                <p className="text-[10px] text-purple-600">Vá para Mensagens para responder</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Ranking */}
+      {ranked.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Ranking da semana</p>
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            {ranked.map((p: any, i: number) => {
+              const stats = patientStats[p.id] || {};
+              const isFirst = i === 0;
+              const needsHelp = (stats.daysNoRegistration || 0) >= 3 || (stats.adherence || 0) < 30;
+              return (
+                <div key={p.id} onClick={() => onSelectPlan(p)} className={`flex items-center gap-3 p-3 cursor-pointer active:bg-gray-50 transition-colors ${i < ranked.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                  {/* Position */}
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${isFirst ? 'bg-amber-100 text-amber-700' : 'bg-gray-50 text-gray-400'}`}>
+                    {isFirst ? '👑' : i + 1}
+                  </div>
+                  {/* Avatar */}
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium ${needsHelp ? 'bg-red-50 text-red-500' : 'bg-teal-50 text-teal-700'}`}>
+                    {(p as any).profiles?.name?.[0] || '?'}
+                  </div>
+                  {/* Name & details */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{(p as any).profiles?.name || 'Paciente'}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-gray-400">{stats.greenMeals || 0} verdes</span>
+                      <span className="text-[10px] text-gray-400">{stats.exerciseDone || 0} exerc.</span>
+                      {needsHelp && <span className="text-[10px] text-red-400">{stats.daysNoRegistration}d sem registro</span>}
+                    </div>
+                  </div>
+                  {/* Adherence bar */}
+                  <div className="w-16">
+                    <p className={`text-sm font-medium text-right ${(stats.adherence || 0) >= 70 ? 'text-green-600' : (stats.adherence || 0) >= 40 ? 'text-amber-600' : 'text-red-500'}`}>{stats.adherence || 0}%</p>
+                    <div className="h-1.5 bg-gray-100 rounded-full mt-1 overflow-hidden">
+                      <div className={`h-full rounded-full ${(stats.adherence || 0) >= 70 ? 'bg-green-400' : (stats.adherence || 0) >= 40 ? 'bg-amber-400' : 'bg-red-400'}`} style={{ width: `${Math.min(100, stats.adherence || 0)}%` }} />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Weekly evolution chart (simple bar chart) */}
+      {activePlans.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Aderência por paciente</p>
+          <div className="bg-white rounded-2xl border border-gray-100 p-4">
+            <div className="space-y-3">
+              {ranked.map((p: any) => {
+                const stats = patientStats[p.id] || {};
+                const adherence = stats.adherence || 0;
+                return (
+                  <div key={p.id} className="flex items-center gap-3">
+                    <span className="text-[10px] text-gray-500 w-16 truncate text-right">{(p as any).profiles?.name?.split(' ')[0] || '?'}</span>
+                    <div className="flex-1 h-5 bg-gray-50 rounded-full overflow-hidden relative">
+                      <div className={`h-full rounded-full transition-all duration-500 ${adherence >= 70 ? 'bg-gradient-to-r from-green-300 to-green-500' : adherence >= 40 ? 'bg-gradient-to-r from-amber-200 to-amber-400' : 'bg-gradient-to-r from-red-200 to-red-400'}`} style={{ width: `${Math.max(8, adherence)}%` }} />
+                      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-medium text-gray-700">{adherence}%</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Needs attention */}
+      {needsAttention > 0 && (
+        <div className="bg-red-50 rounded-2xl p-4 border border-red-100">
+          <div className="flex items-center gap-2 mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#E24B4A"/><text x="12" y="16" textAnchor="middle" fontSize="12" fill="white" fontWeight="bold">!</text></svg>
+            <p className="text-sm font-medium text-red-800">{needsAttention} paciente{needsAttention > 1 ? 's' : ''} precisa{needsAttention > 1 ? 'm' : ''} de atenção</p>
+          </div>
+          <div className="space-y-1.5">
+            {activePlans.filter((p: any) => (patientStats[p.id]?.daysNoRegistration || 0) >= 3 || (patientStats[p.id]?.adherence || 0) < 30).map((p: any) => {
+              const stats = patientStats[p.id] || {};
+              return (
+                <div key={p.id} onClick={() => onSelectPlan(p)} className="flex items-center gap-2 cursor-pointer">
+                  <div className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center text-red-500 text-[10px] font-medium">{(p as any).profiles?.name?.[0]}</div>
+                  <p className="text-xs text-red-700">{(p as any).profiles?.name} — {stats.daysNoRegistration >= 3 ? `${stats.daysNoRegistration} dias sem registro` : `aderência ${stats.adherence}%`}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {activePlans.length === 0 && (
+        <div className="text-center py-8">
+          <div className="w-14 h-14 rounded-full bg-gray-50 flex items-center justify-center mx-auto mb-3">
+            <span className="text-2xl">🌱</span>
+          </div>
+          <p className="text-sm text-gray-500">Nenhum paciente ativo ainda</p>
+          <p className="text-xs text-gray-400 mt-1">Quando seus pacientes criarem planos, eles aparecerão aqui.</p>
         </div>
       )}
     </div>
