@@ -106,26 +106,49 @@ export default function Onboarding() {
 
     await supabase.from('plans').update({ onboarding_conversation: [{ role: 'user', content: summary }] }).eq('id', planId);
 
-    const res = await fetch('/api/chat', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: `Gere um plano nutricional completo para este paciente. Retorne o JSON com goals, meal_plan_base, exercise_plan_base, scientific_rationale e duration_months.\n\nDADOS:\n${summary}` }],
-        mode: 'onboarding',
-      }),
-    });
-    const data = await res.json();
-
-    if (data.planData) {
-      setPlanData(data.planData);
-    } else {
-      setPlanData({
-        duration_months: 6,
-        goals: allObjectives.map(o => ({ description: o, measurement: 'Acompanhamento semanal', timeframe: '6 meses' })),
-        meal_plan_base: { calories: 1800, protein_g: 130, carbs_g: 200, fat_g: 55, meals_per_day: 5, meal_names: ['Café da manhã', 'Lanche da manhã', 'Almoço', 'Lanche da tarde', 'Jantar'] },
-        exercise_plan_base: { weekly_frequency: 3, activities: [{ type: 'Treino personalizado', frequency: '3x/semana' }] },
-        scientific_rationale: 'Plano baseado nas informações fornecidas.',
+    try {
+      const res = await fetch('/api/generate-onboarding-plan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientData: summary }),
       });
-    }
+      const data = await res.json();
+
+      if (data.planData && data.planData.goals?.length > 0) {
+        setPlanData(data.planData);
+        setStep('goals_review');
+        setLoading(false);
+        return;
+      }
+    } catch {}
+
+    // Smart fallback
+    const w = Number(weight); const h = Number(height); const a = Number(age);
+    const tmb = gender === 'Masculino' ? 88.36 + (13.4 * w) + (4.8 * h) - (5.7 * a) : 447.6 + (9.2 * w) + (3.1 * h) - (4.3 * a);
+    const actMult = activityLevel.includes('5') ? 1.725 : activityLevel.includes('3') ? 1.55 : activityLevel.includes('1') ? 1.375 : 1.2;
+    const tdee = Math.round(tmb * actMult);
+    const wantsLose = allObjectives.some(o => o.toLowerCase().includes('emagre'));
+    const wantsGain = allObjectives.some(o => o.toLowerCase().includes('massa'));
+    const targetCal = wantsLose ? tdee - 400 : wantsGain ? tdee + 300 : tdee;
+    const proteinG = wantsGain ? Math.round(w * 2) : Math.round(w * 1.6);
+    const fatG = Math.round(targetCal * 0.25 / 9);
+    const carbsG = Math.round((targetCal - proteinG * 4 - fatG * 9) / 4);
+    const loseKg = wantsLose ? Math.round(w * 0.08) : 0;
+
+    const fallbackGoals = [];
+    if (wantsLose) fallbackGoals.push({ description: `Perder ${loseKg}kg de gordura`, measurement: `Pesagem semanal, meta de -0.5kg/semana`, timeframe: '3 meses' });
+    else if (wantsGain) fallbackGoals.push({ description: `Ganhar ${Math.round(w * 0.05)}kg de massa magra`, measurement: 'Pesagem + medidas quinzenais', timeframe: '4 meses' });
+    else fallbackGoals.push({ description: allObjectives[0] || 'Melhorar alimentação', measurement: 'Acompanhamento semanal', timeframe: '3 meses' });
+
+    fallbackGoals.push({ description: `Atingir ${proteinG}g de proteína por dia`, measurement: 'Registro diário no app', timeframe: '1 mês' });
+    fallbackGoals.push({ description: 'Manter aderência de 80% ao plano', measurement: 'Percentual de refeições verdes na semana', timeframe: 'Contínuo' });
+
+    setPlanData({
+      duration_months: 6,
+      goals: fallbackGoals,
+      meal_plan_base: { calories: targetCal, protein_g: proteinG, carbs_g: carbsG, fat_g: fatG, meals_per_day: 5, meal_names: ['Café da manhã', 'Lanche da manhã', 'Almoço', 'Lanche da tarde', 'Jantar'] },
+      exercise_plan_base: { weekly_frequency: activityLevel.includes('5') ? 5 : activityLevel.includes('3') ? 4 : activityLevel.includes('1') ? 2 : 1, activities: [{ type: hasGym === 'Sim' ? 'Musculação' : 'Exercício funcional', frequency: activityLevel }] },
+      scientific_rationale: `TMB estimada: ${Math.round(tmb)}kcal. TDEE: ${tdee}kcal. ${wantsLose ? `Déficit de 400kcal/dia para perda gradual.` : wantsGain ? `Superávit de 300kcal/dia para ganho de massa.` : `Manutenção calórica.`} Proteína em ${(proteinG / w).toFixed(1)}g/kg para ${wantsGain ? 'síntese muscular' : 'preservação de massa magra'}.`,
+    });
     setStep('goals_review');
     setLoading(false);
   }
