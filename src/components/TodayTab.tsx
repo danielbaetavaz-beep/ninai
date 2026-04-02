@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { getLocalToday } from '@/lib/dates';
 import RecipeModal from '@/components/RecipeModal';
 
-export default function TodayTab({ plan, todayPlan }: { plan: any; todayPlan: any }) {
+export default function TodayTab({ plan }: { plan: any }) {
   const [todayMeals, setTodayMeals] = useState<any[]>([]);
   const [checkin, setCheckin] = useState<any>(null);
   const [expandedMeal, setExpandedMeal] = useState<string | null>(null);

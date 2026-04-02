@@ -44,11 +44,6 @@ export default function Dashboard() {
 
     if (currentPlan.status === 'onboarding') { window.location.href = `/onboarding?plan=${currentPlan.id}`; return; }
 
-    if (currentPlan.status === 'approved') {
-      const todayStr = getLocalToday();
-      const { data: dp } = await supabase.from('daily_plans').select('*').eq('plan_id', currentPlan.id).eq('date', todayStr).limit(1);
-      if (dp && dp.length > 0) setTodayPlan(dp[0]);
-    }
     setLoading(false);
   }
 
@@ -88,8 +83,8 @@ export default function Dashboard() {
     );
   }
 
-  // Plan approved — if no daily plan for today, prompt to fill schedule
-  if (plan.status === 'approved' && !todayPlan) {
+  // Plan approved — if no monthly plan, prompt to generate
+  if (plan.status === 'approved' && !plan.monthly_plan) {
     return (
       <div className="flex flex-col" style={{ minHeight: '100dvh' }}>
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
@@ -97,10 +92,10 @@ export default function Dashboard() {
           {profile && <UserMenu profile={profile} plan={plan} />}
         </div>
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-4"><span className="text-2xl">📅</span></div>
-          <p className="text-gray-700 font-medium mb-2">Sem cardápio para hoje</p>
-          <p className="text-gray-400 text-sm max-w-xs mb-6">Preencha sua programação na aba Programação para gerar seu cardápio.</p>
-          <button onClick={() => setTab('programacao')} className="px-6 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium">Ir para Programação</button>
+          <div className="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-4"><span className="text-2xl">📋</span></div>
+          <p className="text-gray-700 font-medium mb-2">Plano mensal não gerado</p>
+          <p className="text-gray-400 text-sm max-w-xs mb-6">Seu plano ainda não tem o cardápio mensal. Vá em Agenda para gerar.</p>
+          <button onClick={() => setTab('programacao')} className="px-6 py-3 bg-teal-400 text-white rounded-xl text-sm font-medium">Ir para Agenda</button>
         </div>
         <BottomNav tab={tab} setTab={setTab} profileName={profile?.name} />
       </div>
@@ -142,7 +137,7 @@ export default function Dashboard() {
         }}
       >
         {tab === 'jornada' && <JourneyTab plan={plan} />}
-        {tab === 'hoje' && <TodayTab plan={plan} todayPlan={todayPlan} />}
+        {tab === 'hoje' && <TodayTab plan={plan} />}
         {tab === 'programacao' && <ScheduleTab plan={plan} onPlanGenerated={loadData} />}
         {tab === 'compras' && <GroceryTab plan={plan} />}
         {tab === 'mural' && <BulletinTab />}
