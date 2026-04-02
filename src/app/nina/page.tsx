@@ -29,7 +29,7 @@ export default function NinaPanel() {
     if (prof?.role !== 'nutritionist') { window.location.href = '/dashboard'; return; }
     setProfile(prof);
 
-    const { data: plans } = await supabase.from('plans').select('*, profiles:patient_id(name, email)').order('created_at', { ascending: false });
+    const { data: plans } = await supabase.from('plans').select('*, profiles:patient_id(name, email)').not('status', 'eq', 'archived').order('created_at', { ascending: false });
     setPatients(plans || []);
 
     const { data: al } = await supabase.from('alerts').select('*, profiles:patient_id(name)').eq('read', false).order('created_at', { ascending: false });
@@ -596,6 +596,7 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
   const [loading, setLoading] = useState(true);
   const [viewTab, setViewTab] = useState<'upcoming' | 'history' | 'files'>('upcoming');
   const [patientFiles, setPatientFiles] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -621,13 +622,14 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
     const allDates = [...pastDays.map(d => d.date), ...futureDays.map(d => d.date)];
     const minDate = allDates[0];
     const maxDate = allDates[allDates.length - 1];
-    const [{ data: dp }, { data: m }, { data: ex }, { data: files }] = await Promise.all([
+    const [{ data: dp }, { data: m }, { data: ex }, { data: files }, { data: sessData }] = await Promise.all([
       supabase.from('daily_plans').select('*').eq('plan_id', plan.id).in('date', allDates),
       supabase.from('meals').select('*').eq('plan_id', plan.id).gte('date', minDate).lte('date', maxDate),
       supabase.from('exercises').select('*').eq('plan_id', plan.id).gte('date', minDate).lte('date', maxDate),
       supabase.from('patient_files').select('*').eq('plan_id', plan.id).order('created_at', { ascending: false }),
+      supabase.from('app_sessions').select('opened_at').eq('user_id', plan.patient_id).order('opened_at', { ascending: false }),
     ]);
-    setDailyPlans(dp || []); setMeals(m || []); setExercises(ex || []); setPatientFiles(files || []); setLoading(false);
+    setDailyPlans(dp || []); setMeals(m || []); setExercises(ex || []); setPatientFiles(files || []); setSessions(sessData || []); setLoading(false);
   }
 
   async function uploadFile(file: File, description: string) {
@@ -650,23 +652,11 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
 
   async function deletePatient(keepHistory: boolean) {
     setDeleting(true);
-    if (!keepHistory) {
-      // Delete all data
-      await supabase.from('direct_messages').delete().eq('plan_id', plan.id);
-      await supabase.from('favorite_meals').delete().eq('plan_id', plan.id);
-      await supabase.from('patient_files').delete().eq('plan_id', plan.id);
-      await supabase.from('meals').delete().eq('plan_id', plan.id);
-      await supabase.from('exercises').delete().eq('plan_id', plan.id);
-      await supabase.from('daily_plans').delete().eq('plan_id', plan.id);
-      await supabase.from('daily_schedule').delete().eq('plan_id', plan.id);
-      await supabase.from('daily_checkins').delete().eq('plan_id', plan.id);
-      await supabase.from('alerts').delete().eq('plan_id', plan.id);
-      await supabase.from('plans').delete().eq('id', plan.id);
-      await supabase.from('profiles').delete().eq('id', plan.patient_id);
-    } else {
-      // Just deactivate the plan, keep history
-      await supabase.from('plans').update({ status: 'archived' }).eq('id', plan.id);
-    }
+    await fetch('/api/delete-patient', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId: plan.id, patientId: plan.patient_id, keepHistory }),
+    });
     setDeleting(false);
     onBack();
   }
@@ -707,6 +697,30 @@ function ActivePatientView({ plan, onBack }: { plan: any; onBack: () => void }) 
           <div className="bg-gray-50 rounded-xl p-2 text-center"><p className="text-lg font-medium">{exDone}/{exTotal}</p><p className="text-[10px] text-gray-400">exercício</p></div>
           <div className="bg-gray-50 rounded-xl p-2 text-center"><p className="text-lg font-medium">{mp.calories}</p><p className="text-[10px] text-gray-400">kcal/dia</p></div>
         </div>
+
+        {/* Engagement metrics */}
+        {(() => {
+          const totalSessions = sessions.length;
+          const now = new Date();
+          const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
+          const sessionsThisWeek = sessions.filter((s: any) => new Date(s.opened_at) >= weekAgo);
+          const daysThisWeek = new Set(sessionsThisWeek.map((s: any) => new Date(s.opened_at).toDateString())).size;
+          
+          // Average sessions per day (based on days that had at least one session)
+          const allDaysWithSessions = new Set(sessions.map((s: any) => new Date(s.opened_at).toDateString())).size;
+          const avgPerDay = allDaysWithSessions > 0 ? Math.round((totalSessions / allDaysWithSessions) * 10) / 10 : 0;
+
+          return (
+            <div className="bg-purple-50 rounded-xl p-3 mb-3">
+              <p className="text-[10px] font-medium text-purple-700 mb-2">Engajamento no app</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div><p className="text-sm font-medium text-purple-800">{totalSessions}</p><p className="text-[9px] text-purple-500">acessos total</p></div>
+                <div><p className="text-sm font-medium text-purple-800">{avgPerDay}</p><p className="text-[9px] text-purple-500">média/dia</p></div>
+                <div><p className="text-sm font-medium text-purple-800">{daysThisWeek}/7</p><p className="text-[9px] text-purple-500">dias esta sem.</p></div>
+              </div>
+            </div>
+          );
+        })()}
 
         <div className="bg-teal-50 rounded-xl p-3 mb-3">
           <div className="flex justify-between text-[10px] text-teal-700"><span>P: {mp.protein_g}g</span><span>C: {mp.carbs_g}g</span><span>G: {mp.fat_g}g</span><span>{mp.meals_per_day} ref/dia</span></div>

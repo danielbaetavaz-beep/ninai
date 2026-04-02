@@ -30,6 +30,9 @@ export default function Dashboard() {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { window.location.href = '/'; return; }
 
+    // Log app session for engagement tracking
+    supabase.from('app_sessions').insert({ user_id: session.user.id }).then(() => {});
+
     const { data: prof } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
     setProfile(prof);
     if (prof?.role === 'nutritionist') { window.location.href = '/nina'; return; }
