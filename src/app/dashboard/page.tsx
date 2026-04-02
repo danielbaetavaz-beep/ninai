@@ -131,19 +131,54 @@ export default function Dashboard() {
 
 function BottomNav({ tab, setTab, profileName }: { tab: string; setTab: (t: string) => void; profileName?: string }) {
   const tabs = [
-    { id: 'jornada', label: 'Jornada' },
-    { id: 'hoje', label: 'Hoje' },
-    { id: 'programacao', label: 'Agenda' },
-    { id: 'compras', label: 'Compras' },
-    { id: 'chat', label: 'Chat' },
+    { id: 'jornada', label: 'Jornada', icon: (active: boolean) => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M3 21L5 10L12 3L19 10L21 21H3Z" fill={active ? '#1D9E75' : '#d0d0d0'} opacity={active ? 1 : 0.6}/>
+        <path d="M9 21V15H15V21" stroke="white" strokeWidth="1.5"/>
+        <circle cx="12" cy="9" r="2" fill="white"/>
+        <path d="M12 3L12 7" stroke={active ? '#0F6E56' : '#bbb'} strokeWidth="1.5" strokeLinecap="round"/>
+        <path d="M12 3L14 5" stroke={active ? '#0F6E56' : '#bbb'} strokeWidth="1" strokeLinecap="round"/>
+      </svg>
+    )},
+    { id: 'hoje', label: 'Hoje', icon: (active: boolean) => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="5" width="18" height="16" rx="3" fill={active ? '#1D9E75' : '#d0d0d0'} opacity={active ? 1 : 0.6}/>
+        <rect x="3" y="5" width="18" height="6" rx="3" fill={active ? '#0F6E56' : '#bbb'} opacity={active ? 0.8 : 0.4}/>
+        <text x="12" y="19" textAnchor="middle" fontSize="9" fill="white" fontWeight="bold" fontFamily="sans-serif">{new Date().getDate()}</text>
+        <rect x="7" y="3" width="2" height="4" rx="1" fill={active ? '#0F6E56' : '#bbb'}/>
+        <rect x="15" y="3" width="2" height="4" rx="1" fill={active ? '#0F6E56' : '#bbb'}/>
+      </svg>
+    )},
+    { id: 'programacao', label: 'Agenda', icon: (active: boolean) => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <rect x="4" y="3" width="16" height="18" rx="2" fill={active ? '#1D9E75' : '#d0d0d0'} opacity={active ? 1 : 0.6}/>
+        <line x1="8" y1="8" x2="16" y2="8" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="8" y1="12" x2="16" y2="12" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="8" y1="16" x2="13" y2="16" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    )},
+    { id: 'compras', label: 'Compras', icon: (active: boolean) => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M6 6H4L2 20H22L20 6H18" stroke={active ? '#1D9E75' : '#d0d0d0'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M6 6C6 3.79 8.69 2 12 2C15.31 2 18 3.79 18 6" stroke={active ? '#1D9E75' : '#d0d0d0'} strokeWidth="2"/>
+        <circle cx="9" cy="13" r="1.5" fill={active ? '#1D9E75' : '#d0d0d0'}/>
+        <circle cx="15" cy="13" r="1.5" fill={active ? '#1D9E75' : '#d0d0d0'}/>
+      </svg>
+    )},
+    { id: 'chat', label: 'Chat', icon: (active: boolean) => (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+        <path d="M4 4H20C21.1 4 22 4.9 22 6V16C22 17.1 21.1 18 20 18H8L4 22V6C4 4.9 4.9 4 6 4H4Z" fill={active ? '#1D9E75' : '#d0d0d0'} opacity={active ? 1 : 0.6}/>
+        <circle cx="9" cy="11" r="1" fill="white"/><circle cx="13" cy="11" r="1" fill="white"/><circle cx="17" cy="11" r="1" fill="white"/>
+      </svg>
+    )},
   ];
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 max-w-md mx-auto">
-      <div className="flex justify-around py-2">
+    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 max-w-md mx-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      <div className="flex justify-around py-1.5">
         {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center py-1 px-3 ${tab === t.id ? 'text-teal-400' : 'text-gray-300'}`}>
-            <div className={`w-1.5 h-1.5 rounded-full mb-1 ${tab === t.id ? 'bg-teal-400' : 'bg-transparent'}`} />
-            <span className="text-xs">{t.label}</span>
+          <button key={t.id} onClick={() => setTab(t.id)} className="flex flex-col items-center py-1 px-3 touch-manipulation" style={{ WebkitTapHighlightColor: 'transparent' }}>
+            {t.icon(tab === t.id)}
+            <span className={`text-[10px] mt-0.5 font-medium ${tab === t.id ? 'text-teal-500' : 'text-gray-400'}`}>{t.label}</span>
           </button>
         ))}
       </div>
