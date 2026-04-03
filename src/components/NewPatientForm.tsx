@@ -390,11 +390,8 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
           </label>
         </div>
 
-        <button onClick={generatePlan} className="w-full py-4 bg-teal-400 text-white rounded-2xl text-sm font-medium">
-          Gerar plano com IA
-        </button>
-        <button onClick={generatePlan} className="w-full mt-2 py-3 text-gray-400 text-sm">
-          Pular e gerar plano
+        <button onClick={generatePlan} className="w-full py-4 bg-teal-400 text-white rounded-2xl text-sm font-medium active:scale-[0.98] transition-transform">
+          ✨ Gerar plano com IA
         </button>
       </div>
     </div>
