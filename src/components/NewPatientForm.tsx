@@ -19,7 +19,7 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
   const [patientId, setPatientId] = useState<string | null>(null);
   const [showMacrosToPatient, setShowMacrosToPatient] = useState(true);
   const [editingMealIdx, setEditingMealIdx] = useState<number | null>(null);
-  const [hideMacros, setHideMacros] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [expandedMealIdx, setExpandedMealIdx] = useState<number | null>(null);
 
   // Basics
@@ -51,7 +51,6 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
   // Uploads
   const [examFiles, setExamFiles] = useState<File[]>([]);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [hideMacrosFromPatient, setHideMacrosFromPatient] = useState(false);
   const [expandedReviewMeal, setExpandedReviewMeal] = useState<number | null>(null);
 
@@ -273,7 +272,7 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
       approved_at: new Date().toISOString(),
       start_date: new Date().toISOString().split('T')[0],
       goals: generatedPlan.goals,
-      meal_plan_base: { ...generatedPlan.meal_plan_base, hide_macros: hideMacros },
+      meal_plan_base: { ...generatedPlan.meal_plan_base, hide_macros: hideMacrosFromPatient },
       monthly_plan: generatedPlan.monthly_plan,
     }).eq('id', planId);
     setLoading(false);
@@ -520,10 +519,10 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
           {/* ── MACROS ── */}
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm font-medium">Macros</p>
-            <label className="flex items-center gap-1.5 text-[10px] text-gray-500 cursor-pointer">
-              <input type="checkbox" checked={hideMacrosFromPatient} onChange={e => setHideMacrosFromPatient(e.target.checked)} className="rounded w-3.5 h-3.5" />
-              Ocultar do paciente
-            </label>
+            <button onClick={() => setHideMacrosFromPatient(!hideMacrosFromPatient)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${hideMacrosFromPatient ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-400'}`}>
+              {hideMacrosFromPatient ? '🔒 Oculto do paciente' : '👁 Visível ao paciente'}
+            </button>
           </div>
           <div className="grid grid-cols-5 gap-2 mb-5">
             {[{ l: 'Kcal', k: 'calories' }, { l: 'Prot(g)', k: 'protein_g' }, { l: 'Carb(g)', k: 'carbs_g' }, { l: 'Gord(g)', k: 'fat_g' }, { l: 'Ref/dia', k: 'meals_per_day' }].map(m => (
@@ -538,7 +537,7 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-medium">Cardápio mensal</p>
             <button onClick={() => updatePlan(p => { if (!p.monthly_plan) p.monthly_plan = { meals: [] }; p.monthly_plan.meals.push({ meal_name: 'Nova refeição', time_suggestion: '', ingredient_rows: [{ category: '', main: { item: 'Alimento', quantity: '100g' }, alternatives: [] }], macros: {} }); return p; })}
-              className="text-[10px] text-teal-600 font-medium px-2 py-1 bg-teal-50 rounded-lg">+ Refeição</button>
+              className="text-xs text-teal-600 font-medium px-3 py-1.5 bg-teal-50 rounded-lg ring-1 ring-teal-200 active:scale-95 transition-transform">+ Refeição</button>
           </div>
 
           {(generatedPlan.monthly_plan?.meals || []).map((meal: any, mi: number) => {
@@ -605,7 +604,7 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
           )}
 
           <div className="space-y-2 pb-4 mt-4">
-            <button onClick={() => { if (hideMacrosFromPatient) { const u = JSON.parse(JSON.stringify(generatedPlan)); u.meal_plan_base.hide_from_patient = true; setGeneratedPlan(u); } approvePlan(); }} disabled={loading}
+            <button onClick={approvePlan} disabled={loading}
               className="w-full py-4 bg-teal-500 text-white rounded-2xl text-sm font-medium disabled:opacity-50 active:scale-[0.98] transition-transform">
               {loading ? 'Aprovando...' : '✓ Aprovar e ativar plano'}
             </button>
