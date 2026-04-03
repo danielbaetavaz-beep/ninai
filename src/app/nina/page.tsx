@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { getLocalToday } from '@/lib/dates';
 import ExpandingInput from '@/components/ExpandingInput';
+import NewPatientForm from '@/components/NewPatientForm';
 
 export default function NinaPanel() {
   const [profile, setProfile] = useState<any>(null);
@@ -14,6 +15,7 @@ export default function NinaPanel() {
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [selectedChat, setSelectedChat] = useState<any>(null);
   const [teachingSession, setTeachingSession] = useState<any>(null);
+  const [showNewPatient, setShowNewPatient] = useState(false);
   const [tab, setTab] = useState<'dashboard' | 'patients' | 'materials' | 'chat'>('dashboard');
   const [unreadByPlan, setUnreadByPlan] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -88,6 +90,7 @@ export default function NinaPanel() {
   }
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><p className="text-gray-400">Carregando...</p></div>;
+  if (showNewPatient) return <NewPatientForm profile={profile} knowledge={knowledge} onDone={() => { setShowNewPatient(false); loadData(); }} onBack={() => setShowNewPatient(false)} />;
   if (teachingSession) return <TeachingSession session={teachingSession} onDone={() => { setTeachingSession(null); loadData(); }} />;
   if (selectedChat) return <DirectChat plan={selectedChat} profile={profile} onBack={() => { setSelectedChat(null); loadUnread(); }} />;
   if (selectedPlan) return <UnifiedPlanReview plan={selectedPlan} knowledge={knowledge} onBack={() => { setSelectedPlan(null); loadData(); }} />;
@@ -128,6 +131,10 @@ export default function NinaPanel() {
       {/* PATIENTS TAB */}
       {tab === 'patients' && (
         <div className="p-4">
+          <button onClick={() => setShowNewPatient(true)} className="w-full py-3.5 mb-4 bg-teal-500 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            Novo paciente
+          </button>
           {patients.map(p => (
             <div key={p.id} onClick={() => setSelectedPlan(p)} className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl mb-2 cursor-pointer">
               <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 font-medium">{(p as any).profiles?.name?.[0] || '?'}</div>
