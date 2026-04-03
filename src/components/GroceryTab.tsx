@@ -1,87 +1,28 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { getLocalToday, toLocalDateStr } from '@/lib/dates';
+import { useState } from 'react';
 
 export default function GroceryTab({ plan }: { plan: any }) {
-  const [dailyPlans, setDailyPlans] = useState<any[]>([]);
-  const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
   const [groceryList, setGroceryList] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(7);
 
-  const todayStr = getLocalToday();
-  const dayLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-
-  // Next 14 days
-  const futureDays = Array.from({ length: 14 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    return { date: toLocalDateStr(d), dayLabel: dayLabels[d.getDay()], isToday: i === 0 };
-  });
-
-  useEffect(() => { loadPlans(); }, []);
-
-  async function loadPlans() {
-    const dates = futureDays.map(d => d.date);
-    const { data } = await supabase.from('daily_plans').select('*').eq('plan_id', plan.id).in('date', dates).order('date');
-    setDailyPlans(data || []);
-    setLoading(false);
-  }
-
-  function toggleDate(date: string) {
-    setSelectedDates(prev => {
-      const next = new Set(prev);
-      if (next.has(date)) next.delete(date);
-      else next.add(date);
-      return next;
-    });
-    // Clear previous list when selection changes
-    setGroceryList(null);
-  }
-
-  function selectAll() {
-    const allDates = dailyPlans.map(dp => dp.date);
-    setSelectedDates(new Set(allDates));
-    setGroceryList(null);
-  }
-
-  function selectNone() {
-    setSelectedDates(new Set());
-    setGroceryList(null);
-  }
+  const monthlyPlan = plan?.monthly_plan;
 
   async function generateList() {
-    if (selectedDates.size === 0) return;
+    if (!monthlyPlan?.meals) return;
     setGenerating(true);
 
-    // Collect only "casa" meals from selected days
-    const homeMeals: any[] = [];
-    for (const date of Array.from(selectedDates).sort()) {
-      const dp = dailyPlans.find(p => p.date === date);
-      if (!dp) continue;
-      const d = new Date(date + 'T12:00:00');
-      const dayLabel = dayLabels[d.getDay()];
-      const dateFmt = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-
-      for (const meal of (dp.meals || [])) {
-        if (meal.location === 'fora') continue; // Skip eating out
-        homeMeals.push({ date: `${dayLabel} ${dateFmt}`, meal: meal.meal, description: meal.description });
-      }
-    }
-
-    if (homeMeals.length === 0) {
-      setGroceryList({ categories: [], note: 'Nenhuma refeição em casa nos dias selecionados.' });
-      setGenerating(false);
-      return;
-    }
+    const allMeals = (monthlyPlan.meals || []).map((meal: any) => {
+      const ingredients = (meal.ingredient_rows || []).map((row: any) => `${row.main.item} ${row.main.quantity}`).join(', ');
+      return { meal: meal.meal_name, description: ingredients };
+    });
 
     try {
       const res = await fetch('/api/grocery-list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meals: homeMeals }),
+        body: JSON.stringify({ meals: allMeals, days }),
       });
       const result = await res.json();
       setGroceryList(result);
@@ -94,7 +35,7 @@ export default function GroceryTab({ plan }: { plan: any }) {
 
   function toggleItem(itemId: string) {
     setCheckedItems(prev => {
-      const next = new Set(prev);
+      const next = new Set(Array.from(prev));
       if (next.has(itemId)) next.delete(itemId);
       else next.add(itemId);
       return next;
@@ -104,56 +45,47 @@ export default function GroceryTab({ plan }: { plan: any }) {
   const totalItems = groceryList?.categories?.reduce((sum: number, cat: any) => sum + (cat.items?.length || 0), 0) || 0;
   const checkedCount = checkedItems.size;
 
-  if (loading) return <div className="p-4 text-center text-gray-400 text-sm">Carregando...</div>;
+  if (!monthlyPlan?.meals) return (
+    <div className="p-4 text-center py-12">
+      <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-3">
+        <span className="text-2xl">🛒</span>
+      </div>
+      <p className="text-sm text-gray-600 font-medium mb-1">Lista de compras</p>
+      <p className="text-xs text-gray-400">Seu cardápio mensal ainda não foi gerado.</p>
+    </div>
+  );
 
   return (
     <div className="p-4">
       <p className="text-lg font-medium mb-1">Lista de compras</p>
-      <p className="text-xs text-gray-400 mb-4">Selecione os dias e gere a lista do supermercado (só refeições em casa).</p>
+      <p className="text-xs text-gray-400 mb-4">Gere a lista do supermercado baseada no seu cardápio.</p>
 
-      {/* Day selector */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-gray-500 font-medium">Selecione os dias</span>
-          <div className="flex gap-2">
-            <button onClick={selectAll} className="text-[10px] text-teal-600 font-medium">Todos</button>
-            <button onClick={selectNone} className="text-[10px] text-gray-400 font-medium">Limpar</button>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {futureDays.map(day => {
-            const dp = dailyPlans.find(p => p.date === day.date);
-            const hasPlan = !!dp;
-            const isSelected = selectedDates.has(day.date);
-            const dateLabel = new Date(day.date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-
-            if (!hasPlan) return (
-              <div key={day.date} className="px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-300 text-xs opacity-50">
-                <span className="font-medium">{day.dayLabel}</span> <span>{dateLabel}</span>
-              </div>
-            );
-
-            return (
-              <button key={day.date} onClick={() => toggleDate(day.date)}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  isSelected ? 'bg-teal-400 text-white' : 'bg-gray-50 text-gray-600 border border-gray-200'
-                }`}>
-                {day.dayLabel} {dateLabel}
+      {!groceryList && (
+        <>
+          <p className="text-xs text-gray-500 mb-2">Para quantos dias?</p>
+          <div className="flex gap-2 mb-4">
+            {[3, 5, 7, 14].map(d => (
+              <button key={d} onClick={() => setDays(d)}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${days === d ? 'bg-teal-400 text-white' : 'bg-gray-50 text-gray-600 ring-1 ring-gray-100'}`}>
+                {d} dias
               </button>
-            );
-          })}
-        </div>
-        {dailyPlans.length === 0 && <p className="text-xs text-gray-400 mt-2">Nenhum dia com cardápio gerado ainda. Vá na aba Agenda para gerar.</p>}
-      </div>
+            ))}
+          </div>
 
-      {/* Generate button */}
-      {selectedDates.size > 0 && !groceryList && (
-        <button onClick={generateList} disabled={generating} className="w-full py-3 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50 mb-4">
-          {generating ? 'Gerando lista...' : `Gerar lista para ${selectedDates.size} dia${selectedDates.size > 1 ? 's' : ''}`}
-        </button>
+          <div className="bg-gray-50 rounded-xl p-3 mb-4">
+            <p className="text-xs text-gray-500 font-medium mb-2">Refeições incluídas:</p>
+            {monthlyPlan.meals.map((meal: any, i: number) => (
+              <p key={i} className="text-[10px] text-gray-600 mb-0.5">• {meal.meal_name}: {(meal.ingredient_rows || []).map((r: any) => r.main.item).join(', ')}</p>
+            ))}
+          </div>
+
+          <button onClick={generateList} disabled={generating}
+            className="w-full py-3.5 bg-teal-400 text-white rounded-xl text-sm font-medium disabled:opacity-50 active:scale-[0.98] transition-transform">
+            {generating ? 'Gerando lista...' : `🛒 Gerar lista para ${days} dias`}
+          </button>
+        </>
       )}
 
-      {/* Grocery list */}
       {groceryList && (
         <div>
           {groceryList.note && <p className="text-xs text-gray-500 mb-3">{groceryList.note}</p>}
@@ -174,7 +106,7 @@ export default function GroceryTab({ plan }: { plan: any }) {
                   const isChecked = checkedItems.has(itemId);
                   return (
                     <div key={itemIdx} onClick={() => toggleItem(itemId)}
-                      className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all ${isChecked ? 'bg-gray-50 opacity-50' : 'bg-white border border-gray-100'}`}>
+                      className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-all ${isChecked ? 'bg-gray-50 opacity-50' : 'bg-white ring-1 ring-gray-100'}`}>
                       <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 ${isChecked ? 'bg-teal-400 border-teal-400' : 'border-gray-200'}`}>
                         {isChecked && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round"><path d="M5 13l4 4L19 7" /></svg>}
                       </div>
