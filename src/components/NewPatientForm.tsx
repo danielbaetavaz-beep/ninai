@@ -63,122 +63,42 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
     setStep('generating');
     setLoading(true);
 
-    // 1. Create auth user with temp password
-    const tempPassword = Math.random().toString(36).slice(-8) + 'A1!';
-    const { data: authData, error: authError } = await supabase.auth.admin?.createUser?.({
-      email, password: tempPassword, email_confirm: true,
-    }) || { data: null, error: null };
+    const allRestrictions = [...restrictions, ...(otherRestriction ? [otherRestriction] : [])];
+    const api = async (action: string, data: any) => {
+      const res = await fetch('/api/setup-patient', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...data }) });
+      return res.json();
+    };
 
-    // If admin API not available, use the server-side approach
-    let userId: string;
-    if (authData?.user) {
-      userId = authData.user.id;
-    } else {
-      // Create via API
-      const res = await fetch('/api/create-patient', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, name, password: '121212' }),
-      });
-      const data = await res.json();
-      if (data.error) { alert('Erro ao criar paciente: ' + data.error); setStep('basics'); setLoading(false); return; }
-      userId = data.userId;
-    }
-
+    // 1. Create auth user
+    const userResult = await api('create_user', { email, password: '121212' });
+    if (userResult.error) { alert('Erro ao criar paciente: ' + userResult.error); setStep('basics'); setLoading(false); return; }
+    const userId = userResult.userId;
     setPatientId(userId);
 
-    // 2. Create/update profile
-    const allRestrictions = [...restrictions, ...(otherRestriction ? [otherRestriction] : [])];
-    await supabase.from('profiles').upsert({
-      id: userId, email, name, role: 'patient',
-      phone, age: Number(age), gender, anamnesis,
-      restrictions: allRestrictions, medications, pathologies, objectives,
-    }, { onConflict: 'id' });
+    // 2. Create profile
+    await api('create_profile', { profile: { id: userId, email, name, role: 'patient', phone, age: Number(age), gender, anamnesis, restrictions: allRestrictions, medications, pathologies, objectives } });
 
-    // 3. Save initial measurements
-    await supabase.from('patient_measurements').insert({
-      patient_id: userId, created_by: profile.id,
-      weight_kg: weight ? Number(weight) : null,
-      height_cm: height ? Number(height) : null,
-      body_fat_pct: bodyFat ? Number(bodyFat) : null,
-      lean_mass_kg: leanMass ? Number(leanMass) : null,
-      water_pct: waterPct ? Number(waterPct) : null,
-      waist_cm: waist ? Number(waist) : null,
-      hip_cm: hip ? Number(hip) : null,
-      notes: 'Primeira consulta',
-    });
+    // 3. Save measurements
+    await api('create_measurement', { measurement: { patient_id: userId, created_by: profile.id, weight_kg: weight ? Number(weight) : null, height_cm: height ? Number(height) : null, body_fat_pct: bodyFat ? Number(bodyFat) : null, lean_mass_kg: leanMass ? Number(leanMass) : null, water_pct: waterPct ? Number(waterPct) : null, waist_cm: waist ? Number(waist) : null, hip_cm: hip ? Number(hip) : null, notes: 'Primeira consulta' } });
 
-    // 4. Upload files
-    const uploadedExamUrls: string[] = [];
-    const uploadedPhotoUrls: string[] = [];
+    // 4. Generate plan with AI
+    const patientSummary = `Nome: ${name}. Sexo: ${gender}. Idade: ${age}. Peso: ${weight}kg. Altura: ${height}cm. Gordura: ${bodyFat || '-'}%. Massa magra: ${leanMass || '-'}kg. Cintura: ${waist || '-'}cm. Quadril: ${hip || '-'}cm. Atividade: ${activityLevel}. Academia: ${hasGym}. Restrições: ${allRestrictions.join(', ') || 'nenhuma'}. Medicamentos: ${medications || 'nenhum'}. Patologias: ${pathologies || 'nenhuma'}. Objetivos: ${objectives}. Anamnese: ${anamnesis}`;
 
-    for (const file of examFiles) {
-      const fn = `patient_${userId}/exams/${Date.now()}_${file.name}`;
-      await supabase.storage.from('patient-files').upload(fn, file);
-      const { data: urlData } = supabase.storage.from('patient-files').getPublicUrl(fn);
-      uploadedExamUrls.push(urlData.publicUrl);
-    }
-    for (const file of photoFiles) {
-      const fn = `patient_${userId}/photos/${Date.now()}_${file.name}`;
-      await supabase.storage.from('patient-files').upload(fn, file);
-      const { data: urlData } = supabase.storage.from('patient-files').getPublicUrl(fn);
-      uploadedPhotoUrls.push(urlData.publicUrl);
-    }
-
-    // Save files to patient_files table
-    for (const url of uploadedExamUrls) {
-      await supabase.from('patient_files').insert({ plan_id: null, patient_id: userId, name: 'Exame', file_url: url, file_type: 'pdf', description: 'Exame da primeira consulta' });
-    }
-
-    // 5. Generate plan with AI using Nina's knowledge
-    const patientSummary = `Nome: ${name}. Sexo: ${gender}. Idade: ${age}. Peso: ${weight}kg. Altura: ${height}cm. Gordura corporal: ${bodyFat || 'não informado'}%. Massa magra: ${leanMass || 'não informado'}kg. Cintura: ${waist || '-'}cm. Quadril: ${hip || '-'}cm. Atividade: ${activityLevel}. Academia: ${hasGym}. Restrições: ${allRestrictions.join(', ') || 'nenhuma'}. Medicamentos: ${medications || 'nenhum'}. Patologias: ${pathologies || 'nenhuma'}. Objetivos: ${objectives}. Anamnese: ${anamnesis}`;
-
-    // Generate onboarding plan (goals, macros)
-    const planRes = await fetch('/api/generate-onboarding-plan', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ patientData: patientSummary }),
-    });
+    const planRes = await fetch('/api/generate-onboarding-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ patientData: patientSummary }) });
     const planResult = await planRes.json();
     const planData = planResult.planData || getSmartFallback();
 
-    // Generate monthly meal plan
-    const monthlyRes = await fetch('/api/generate-monthly-plan', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        mealPlanBase: planData.meal_plan_base,
-        exercisePlanBase: planData.exercise_plan_base,
-        goals: planData.goals,
-        restrictions: allRestrictions.join(', '),
-        ninaKnowledge: knowledge,
-      }),
-    });
+    // 5. Generate monthly meal plan
+    const monthlyRes = await fetch('/api/generate-monthly-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mealPlanBase: planData.meal_plan_base, exercisePlanBase: planData.exercise_plan_base, goals: planData.goals, restrictions: allRestrictions.join(', '), ninaKnowledge: knowledge }) });
     const monthlyResult = await monthlyRes.json();
 
-    // 6. Create plan in DB (use service role to bypass RLS)
-    const planRes2 = await fetch('/api/create-plan', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        patient_id: userId,
-        status: 'pending_review',
-        duration_months: planData.duration_months || 6,
-        goals: planData.goals,
-        meal_plan_base: planData.meal_plan_base,
-        exercise_plan_base: planData.exercise_plan_base,
-        scientific_rationale: planData.scientific_rationale,
-        monthly_plan: monthlyResult.monthlyPlan,
-        onboarding_conversation: [{ role: 'system', content: patientSummary }],
-      }),
-    });
-    const planResult2 = await planRes2.json();
+    // 6. Create plan in DB
+    const planResult2 = await api('create_plan', { plan: { patient_id: userId, status: 'pending_review', duration_months: planData.duration_months || 6, goals: planData.goals, meal_plan_base: planData.meal_plan_base, exercise_plan_base: planData.exercise_plan_base, scientific_rationale: planData.scientific_rationale, monthly_plan: monthlyResult.monthlyPlan, onboarding_conversation: [{ role: 'system', content: patientSummary }] } });
 
-    if (planResult2.error) {
-      console.error('Create plan error:', planResult2.error);
-    }
+    if (planResult2.error) console.error('Create plan error:', planResult2.error);
 
     const newPlanId = planResult2.planId;
-    if (newPlanId) {
-      setPlanId(newPlanId);
-      await supabase.from('patient_files').update({ plan_id: newPlanId }).eq('patient_id', userId).is('plan_id', null);
-    }
+    if (newPlanId) setPlanId(newPlanId);
 
     setGeneratedPlan({ ...planData, monthly_plan: monthlyResult.monthlyPlan, plan_id: newPlanId });
     setStep('review');
@@ -277,9 +197,10 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
     if (!pid) { alert('Erro: plano não encontrado. Tente gerar novamente.'); return; }
     setLoading(true);
     try {
-      const res = await fetch('/api/approve-plan', {
+      const res = await fetch('/api/setup-patient', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'approve_plan',
           planId: pid,
           goals: generatedPlan.goals,
           meal_plan_base: { ...generatedPlan.meal_plan_base, hide_macros: hideMacrosFromPatient },
