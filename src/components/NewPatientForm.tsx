@@ -52,6 +52,8 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
   const [examFiles, setExamFiles] = useState<File[]>([]);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [hideMacrosFromPatient, setHideMacrosFromPatient] = useState(false);
+  const [expandedReviewMeal, setExpandedReviewMeal] = useState<number | null>(null);
 
   function toggleRestriction(r: string) {
     if (r === 'Nenhuma') { setRestrictions([]); return; }
@@ -483,147 +485,131 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
   // ============ REVIEW ============
   if (step === 'review' && generatedPlan) {
     const mp = generatedPlan.meal_plan_base || {};
+    const TILE_COLORS = ['#0F6E56', '#1D9E75', '#378ADD', '#7F77DD', '#D85A30'];
+
+    const updatePlan = (fn: (p: any) => any) => { setGeneratedPlan((prev: any) => fn(JSON.parse(JSON.stringify(prev)))); };
+
     return (
       <div className="min-h-screen bg-white">
         <div className="p-4 flex items-center gap-3 border-b border-gray-100">
           <button onClick={() => setStep('uploads')} className="text-gray-400 text-sm">← Voltar</button>
           <p className="text-sm font-medium flex-1">Revisar plano — {name}</p>
         </div>
-        <div className="p-5 pb-32">
-          <div className="bg-green-50 rounded-xl p-3 mb-4 flex items-center gap-2">
+        <div className="p-5 pb-32 overflow-y-auto">
+          <div className="bg-green-50 rounded-xl p-3 mb-5 flex items-center gap-2">
             <span className="text-lg">✨</span>
-            <p className="text-xs text-green-800">Plano gerado com base nos seus conhecimentos e nos dados de {name}. Edite o que precisar.</p>
+            <p className="text-xs text-green-800">Plano gerado. Edite tudo que precisar.</p>
           </div>
 
-          {/* Editable Goals */}
+          {/* ── METAS ── */}
           <p className="text-sm font-medium mb-2">Metas</p>
-          <div className="space-y-2 mb-4">
+          <div className="space-y-2 mb-2">
             {(generatedPlan.goals || []).map((g: any, i: number) => (
-              <div key={i} className="bg-teal-50 rounded-xl p-3">
-                <div className="flex items-start gap-2">
-                  <div className="flex-1 space-y-1.5">
-                    <input value={g.description} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], description: e.target.value }; setGeneratedPlan(u); }}
-                      className="w-full text-sm font-medium text-teal-800 bg-transparent border-b border-teal-200 pb-1 focus:outline-none focus:border-teal-400" />
-                    <div className="flex gap-2">
-                      <input value={g.measurement} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], measurement: e.target.value }; setGeneratedPlan(u); }}
-                        className="flex-1 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none" placeholder="Como medir" />
-                      <input value={g.timeframe} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], timeframe: e.target.value }; setGeneratedPlan(u); }}
-                        className="w-24 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none text-right" placeholder="Prazo" />
-                    </div>
-                  </div>
-                  <button onClick={() => { const u = { ...generatedPlan }; u.goals = u.goals.filter((_: any, j: number) => j !== i); setGeneratedPlan(u); }}
-                    className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center text-red-500 text-xs shrink-0 mt-1">✕</button>
+              <div key={i} className="bg-teal-50 rounded-xl p-3 relative">
+                <button onClick={() => updatePlan(p => { p.goals.splice(i, 1); return p; })} className="absolute top-2 right-2 w-6 h-6 rounded-full bg-white text-red-400 text-xs flex items-center justify-center shadow-sm">✕</button>
+                <input value={g.description} onChange={e => updatePlan(p => { p.goals[i].description = e.target.value; return p; })} className="w-full text-sm font-medium text-teal-800 bg-transparent border-b border-teal-200 pb-1 focus:outline-none pr-8" />
+                <div className="flex gap-2 mt-1.5">
+                  <input value={g.measurement} onChange={e => updatePlan(p => { p.goals[i].measurement = e.target.value; return p; })} className="flex-1 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none" placeholder="Como medir" />
+                  <input value={g.timeframe} onChange={e => updatePlan(p => { p.goals[i].timeframe = e.target.value; return p; })} className="w-24 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none text-right" placeholder="Prazo" />
                 </div>
               </div>
             ))}
-            <button onClick={() => { const u = { ...generatedPlan }; u.goals = [...u.goals, { description: 'Nova meta', measurement: 'Como medir', timeframe: '3 meses' }]; setGeneratedPlan(u); }}
-              className="w-full py-2 text-xs text-teal-600 border border-dashed border-teal-200 rounded-xl">+ Adicionar meta</button>
           </div>
+          <button onClick={() => updatePlan(p => { p.goals.push({ description: 'Nova meta', measurement: 'Como medir', timeframe: '3 meses' }); return p; })} className="w-full py-2 mb-5 text-xs text-teal-600 border border-dashed border-teal-200 rounded-xl">+ Adicionar meta</button>
 
-          {/* Macros with hide toggle */}
+          {/* ── MACROS ── */}
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm font-medium">Plano alimentar</p>
-            <label className="flex items-center gap-1.5 text-[10px] text-gray-500">
-              <input type="checkbox" checked={hideMacros} onChange={e => setHideMacros(e.target.checked)} className="rounded w-3.5 h-3.5" />
-              Ocultar macros do paciente
+            <p className="text-sm font-medium">Macros</p>
+            <label className="flex items-center gap-1.5 text-[10px] text-gray-500 cursor-pointer">
+              <input type="checkbox" checked={hideMacrosFromPatient} onChange={e => setHideMacrosFromPatient(e.target.checked)} className="rounded w-3.5 h-3.5" />
+              Ocultar do paciente
             </label>
           </div>
-          <div className="grid grid-cols-5 gap-2 mb-4">
-            {[
-              { l: 'Kcal', k: 'calories', v: mp.calories },
-              { l: 'Prot(g)', k: 'protein_g', v: mp.protein_g },
-              { l: 'Carb(g)', k: 'carbs_g', v: mp.carbs_g },
-              { l: 'Gord(g)', k: 'fat_g', v: mp.fat_g },
-              { l: 'Ref/dia', k: 'meals_per_day', v: mp.meals_per_day },
-            ].map(m => (
+          <div className="grid grid-cols-5 gap-2 mb-5">
+            {[{ l: 'Kcal', k: 'calories' }, { l: 'Prot(g)', k: 'protein_g' }, { l: 'Carb(g)', k: 'carbs_g' }, { l: 'Gord(g)', k: 'fat_g' }, { l: 'Ref/dia', k: 'meals_per_day' }].map(m => (
               <div key={m.l} className="bg-gray-50 rounded-xl p-2 text-center">
-                <input type="number" value={m.v || ''} onChange={e => { const u = { ...generatedPlan }; u.meal_plan_base = { ...u.meal_plan_base, [m.k]: Number(e.target.value) }; setGeneratedPlan(u); }}
-                  className="w-full text-sm font-medium text-center bg-transparent focus:outline-none" />
+                <input type="number" value={mp[m.k] || ''} onChange={e => updatePlan(p => { p.meal_plan_base[m.k] = Number(e.target.value); return p; })} className="w-full text-sm font-medium text-center bg-transparent focus:outline-none" />
                 <p className="text-[9px] text-gray-400">{m.l}</p>
               </div>
             ))}
           </div>
-          {hideMacros && <p className="text-[10px] text-amber-600 mb-4 -mt-2">Os macros serão salvos mas não aparecerão para o paciente.</p>}
 
-          {/* Monthly plan — full editable */}
-          {generatedPlan.monthly_plan?.meals && (
-            <>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium">Cardápio mensal</p>
-                <button onClick={addMealToMonthly} className="text-[10px] text-teal-600 font-medium">+ Refeição</button>
-              </div>
-              <div className="space-y-3 mb-4">
-                {generatedPlan.monthly_plan.meals.map((meal: any, mealIdx: number) => {
-                  const isExpanded = expandedMealIdx === mealIdx;
-                  return (
-                    <div key={mealIdx} className={`rounded-xl overflow-hidden ${isExpanded ? 'ring-1 ring-teal-300 bg-white' : 'bg-gray-50'}`}>
-                      {/* Meal header */}
-                      <div className="flex items-center gap-2 p-3 cursor-pointer" onClick={() => setExpandedMealIdx(isExpanded ? null : mealIdx)}>
-                        <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center text-teal-700 text-xs font-medium shrink-0">{mealIdx + 1}</div>
-                        <div className="flex-1 min-w-0">
-                          {isExpanded ? (
-                            <input value={meal.meal_name} onChange={e => updateMonthlyMeal(mealIdx, 'meal_name', e.target.value)} onClick={e => e.stopPropagation()}
-                              className="w-full text-xs font-medium bg-transparent border-b border-gray-200 pb-0.5 focus:outline-none focus:border-teal-400" />
-                          ) : (
-                            <p className="text-xs font-medium">{meal.meal_name}</p>
-                          )}
-                          <p className="text-[10px] text-gray-400 truncate mt-0.5">{(meal.ingredient_rows || []).map((r: any) => r.main?.item).filter(Boolean).join(' · ')}</p>
-                        </div>
-                        <button onClick={(e) => { e.stopPropagation(); removeMealFromMonthly(mealIdx); }} className="w-6 h-6 rounded-full bg-red-50 flex items-center justify-center text-red-400 text-[10px] shrink-0">✕</button>
-                      </div>
+          {/* ── CARDÁPIO MENSAL ── */}
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-medium">Cardápio mensal</p>
+            <button onClick={() => updatePlan(p => { if (!p.monthly_plan) p.monthly_plan = { meals: [] }; p.monthly_plan.meals.push({ meal_name: 'Nova refeição', time_suggestion: '', ingredient_rows: [{ category: '', main: { item: 'Alimento', quantity: '100g' }, alternatives: [] }], macros: {} }); return p; })}
+              className="text-[10px] text-teal-600 font-medium px-2 py-1 bg-teal-50 rounded-lg">+ Refeição</button>
+          </div>
 
-                      {/* Expanded meal editor */}
-                      {isExpanded && (
-                        <div className="px-3 pb-3 border-t border-gray-100">
-                          {/* Ingredient rows as grid */}
-                          {(meal.ingredient_rows || []).map((row: any, rowIdx: number) => (
-                            <div key={rowIdx} className="mt-3">
-                              {/* Main option tile */}
-                              <div className="bg-teal-500 text-white rounded-xl p-2.5 mb-1.5">
-                                <div className="flex gap-2">
-                                  <input value={row.main?.item || ''} onChange={e => updateIngredientRow(mealIdx, rowIdx, 'main', 'item', e.target.value)}
-                                    placeholder="Ingrediente" className="flex-1 text-xs font-medium bg-transparent border-b border-teal-300 pb-0.5 focus:outline-none placeholder-teal-200 text-white" />
-                                  <input value={row.main?.quantity || ''} onChange={e => updateIngredientRow(mealIdx, rowIdx, 'main', 'quantity', e.target.value)}
-                                    placeholder="Qtd" className="w-20 text-xs bg-transparent border-b border-teal-300 pb-0.5 focus:outline-none text-right placeholder-teal-200 text-white" />
-                                </div>
-                              </div>
-                              {/* Alternatives */}
-                              <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
-                                {(row.alternatives || []).map((alt: any, altIdx: number) => (
-                                  <div key={altIdx} className="shrink-0 bg-teal-50 rounded-lg px-2.5 py-2 min-w-[110px]">
-                                    <input value={alt.item || ''} onChange={e => updateAlternative(mealIdx, rowIdx, altIdx, 'item', e.target.value)}
-                                      placeholder="Alternativa" className="w-full text-[10px] font-medium bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none text-teal-800 placeholder-teal-300" />
-                                    <input value={alt.quantity || ''} onChange={e => updateAlternative(mealIdx, rowIdx, altIdx, 'quantity', e.target.value)}
-                                      placeholder="Qtd" className="w-full text-[9px] bg-transparent focus:outline-none text-teal-600 mt-0.5 placeholder-teal-300" />
-                                  </div>
-                                ))}
-                                <button onClick={() => addAlternative(mealIdx, rowIdx)} className="shrink-0 w-8 h-full rounded-lg border border-dashed border-teal-200 flex items-center justify-center text-teal-400 text-lg">+</button>
-                              </div>
+          {(generatedPlan.monthly_plan?.meals || []).map((meal: any, mi: number) => {
+            const isOpen = expandedReviewMeal === mi;
+            return (
+              <div key={mi} className={`mb-3 rounded-2xl ring-1 ${isOpen ? 'ring-gray-300' : 'ring-gray-100'} overflow-hidden bg-white`}>
+                <div className="flex items-center gap-2 p-3 cursor-pointer" onClick={() => setExpandedReviewMeal(isOpen ? null : mi)}>
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-[10px] font-medium shrink-0" style={{ background: TILE_COLORS[mi % TILE_COLORS.length] }}>{(meal.meal_name || '?')[0]}</div>
+                  <div className="flex-1 min-w-0">
+                    <input value={meal.meal_name} onClick={e => e.stopPropagation()} onChange={e => updatePlan(p => { p.monthly_plan.meals[mi].meal_name = e.target.value; return p; })}
+                      className="text-sm font-medium bg-transparent focus:outline-none border-b border-transparent focus:border-teal-300 w-full" />
+                    <p className="text-[10px] text-gray-400 truncate">{(meal.ingredient_rows || []).map((r: any) => r.main.item).join(' · ')}</p>
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); updatePlan(p => { p.monthly_plan.meals.splice(mi, 1); p.meal_plan_base.meals_per_day = p.monthly_plan.meals.length; return p; }); }} className="w-7 h-7 rounded-full text-red-400 text-xs flex items-center justify-center bg-red-50 shrink-0">✕</button>
+                  <svg className={`w-4 h-4 text-gray-300 transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" d="M19 9l-7 7-7-7" /></svg>
+                </div>
+
+                {isOpen && (
+                  <div className="px-3 pb-3 border-t border-gray-50 space-y-2.5 pt-2">
+                    {(meal.ingredient_rows || []).map((row: any, ri: number) => {
+                      const c = TILE_COLORS[ri % TILE_COLORS.length];
+                      return (
+                        <div key={ri}>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <div className="flex-1 rounded-xl p-2.5 flex items-center gap-2" style={{ background: c }}>
+                              <input value={row.main.item} onChange={e => updatePlan(p => { p.monthly_plan.meals[mi].ingredient_rows[ri].main.item = e.target.value; return p; })}
+                                className="flex-1 text-xs font-medium text-white bg-transparent focus:outline-none" style={{ caretColor: 'white' }} />
+                              <input value={row.main.quantity} onChange={e => updatePlan(p => { p.monthly_plan.meals[mi].ingredient_rows[ri].main.quantity = e.target.value; return p; })}
+                                className="w-16 text-[10px] text-white/80 bg-transparent focus:outline-none text-right" />
                             </div>
-                          ))}
-                          <button onClick={() => addIngredientRow(mealIdx)} className="w-full mt-2 py-2 text-[10px] text-teal-600 border border-dashed border-teal-200 rounded-xl">+ Adicionar ingrediente</button>
+                            <button onClick={() => updatePlan(p => { p.monthly_plan.meals[mi].ingredient_rows.splice(ri, 1); return p; })} className="w-6 h-6 rounded-full text-red-400 text-[10px] bg-red-50 flex items-center justify-center shrink-0">✕</button>
+                          </div>
+                          <div className="flex gap-1 overflow-x-auto ml-3 pb-1" style={{ scrollbarWidth: 'none' }}>
+                            {(row.alternatives || []).map((alt: any, ai: number) => (
+                              <div key={ai} className="shrink-0 rounded-lg p-2 bg-gray-50 ring-1 ring-gray-100 flex items-center gap-1" style={{ minWidth: '110px' }}>
+                                <div className="flex-1 min-w-0">
+                                  <input value={alt.item} onChange={e => updatePlan(p => { p.monthly_plan.meals[mi].ingredient_rows[ri].alternatives[ai].item = e.target.value; return p; })}
+                                    className="w-full text-[10px] font-medium bg-transparent focus:outline-none text-gray-700 truncate" />
+                                  <input value={alt.quantity} onChange={e => updatePlan(p => { p.monthly_plan.meals[mi].ingredient_rows[ri].alternatives[ai].quantity = e.target.value; return p; })}
+                                    className="w-full text-[9px] bg-transparent focus:outline-none text-gray-400" />
+                                </div>
+                                <button onClick={() => updatePlan(p => { p.monthly_plan.meals[mi].ingredient_rows[ri].alternatives.splice(ai, 1); return p; })} className="text-red-300 text-[9px] shrink-0">✕</button>
+                              </div>
+                            ))}
+                            <button onClick={() => updatePlan(p => { p.monthly_plan.meals[mi].ingredient_rows[ri].alternatives.push({ item: 'Alternativa', quantity: '100g' }); return p; })}
+                              className="shrink-0 w-9 rounded-lg bg-gray-50 ring-1 ring-dashed ring-gray-200 flex items-center justify-center text-gray-300 text-sm" style={{ minHeight: '38px' }}>+</button>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+                      );
+                    })}
+                    <button onClick={() => updatePlan(p => { p.monthly_plan.meals[mi].ingredient_rows.push({ category: '', main: { item: 'Novo item', quantity: '100g' }, alternatives: [] }); return p; })}
+                      className="w-full py-1.5 text-[10px] text-teal-600 border border-dashed border-teal-200 rounded-lg">+ Item</button>
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            );
+          })}
 
-          {/* Rationale */}
           {generatedPlan.scientific_rationale && (
-            <div className="bg-purple-50 rounded-xl p-3 mb-4">
+            <div className="bg-purple-50 rounded-xl p-3 mt-4 mb-4">
               <p className="text-[10px] font-medium text-purple-700 mb-1">Justificativa</p>
               <p className="text-xs text-purple-800 leading-relaxed">{generatedPlan.scientific_rationale}</p>
             </div>
           )}
 
-          <div className="space-y-2 pb-4">
-            <button onClick={approvePlan} disabled={loading} className="w-full py-4 bg-teal-500 text-white rounded-2xl text-sm font-medium disabled:opacity-50 active:scale-[0.98] transition-transform">
+          <div className="space-y-2 pb-4 mt-4">
+            <button onClick={() => { if (hideMacrosFromPatient) { const u = JSON.parse(JSON.stringify(generatedPlan)); u.meal_plan_base.hide_from_patient = true; setGeneratedPlan(u); } approvePlan(); }} disabled={loading}
+              className="w-full py-4 bg-teal-500 text-white rounded-2xl text-sm font-medium disabled:opacity-50 active:scale-[0.98] transition-transform">
               {loading ? 'Aprovando...' : '✓ Aprovar e ativar plano'}
             </button>
-            <p className="text-[10px] text-gray-400 text-center">O paciente receberá acesso ao app com este plano. Senha inicial: 121212</p>
+            <p className="text-[10px] text-gray-400 text-center">Senha inicial do paciente: 121212</p>
           </div>
         </div>
       </div>
