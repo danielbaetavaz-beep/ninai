@@ -52,7 +52,7 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
   const [examFiles, setExamFiles] = useState<File[]>([]);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [hideMacrosFromPatient, setHideMacrosFromPatient] = useState(false);
-  const [expandedReviewMeal, setExpandedReviewMeal] = useState<number | null>(null);
+  const [expandedReviewMeal, setExpandedReviewMeal] = useState<number | null>(0);
 
   function toggleRestriction(r: string) {
     if (r === 'Nenhuma') { setRestrictions([]); return; }
@@ -89,18 +89,64 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
     const planData = planResult.planData || getSmartFallback();
 
     // 5. Generate monthly meal plan
-    const monthlyRes = await fetch('/api/generate-monthly-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mealPlanBase: planData.meal_plan_base, exercisePlanBase: planData.exercise_plan_base, goals: planData.goals, restrictions: allRestrictions.join(', '), ninaKnowledge: knowledge }) });
-    const monthlyResult = await monthlyRes.json();
+    let monthlyPlan = null;
+    try {
+      const monthlyRes = await fetch('/api/generate-monthly-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mealPlanBase: planData.meal_plan_base, exercisePlanBase: planData.exercise_plan_base, goals: planData.goals, restrictions: allRestrictions.join(', '), ninaKnowledge: knowledge }) });
+      const monthlyResult = await monthlyRes.json();
+      monthlyPlan = monthlyResult.monthlyPlan;
+    } catch (e) { console.error('Monthly plan generation failed:', e); }
+
+    // Fallback if AI didn't generate monthly plan
+    if (!monthlyPlan || !monthlyPlan.meals) {
+      const mealNames = planData.meal_plan_base.meal_names || ['Café da manhã', 'Lanche da manhã', 'Almoço', 'Lanche da tarde', 'Jantar'];
+      const defaultMeals: Record<string, any> = {
+        'Café da manhã': { time: '7:00', rows: [
+          { category: '', main: { item: 'Ovo inteiro', quantity: '1 unidade' }, alternatives: [{ item: 'Iogurte natural', quantity: '200ml' }, { item: 'Queijo branco', quantity: '40g' }] },
+          { category: '', main: { item: 'Pão integral', quantity: '2 fatias' }, alternatives: [{ item: 'Tapioca', quantity: '50g' }, { item: 'Aveia', quantity: '30g' }] },
+          { category: '', main: { item: 'Banana', quantity: '1 unidade (90g)' }, alternatives: [{ item: 'Maçã', quantity: '150g' }, { item: 'Morango', quantity: '200g' }] },
+        ]},
+        'Lanche da manhã': { time: '10:00', rows: [
+          { category: '', main: { item: 'Castanhas', quantity: '30g' }, alternatives: [{ item: 'Banana', quantity: '1 unidade' }, { item: 'Iogurte', quantity: '170ml' }] },
+        ]},
+        'Almoço': { time: '12:30', rows: [
+          { category: '', main: { item: 'Frango grelhado', quantity: '120g' }, alternatives: [{ item: 'Peixe', quantity: '160g' }, { item: 'Patinho', quantity: '100g' }] },
+          { category: '', main: { item: 'Arroz integral', quantity: '80g' }, alternatives: [{ item: 'Batata doce', quantity: '120g' }, { item: 'Quinoa', quantity: '80g' }] },
+          { category: '', main: { item: 'Feijão', quantity: '80g' }, alternatives: [{ item: 'Lentilha', quantity: '80g' }, { item: 'Grão de bico', quantity: '80g' }] },
+          { category: '', main: { item: 'Salada e legumes', quantity: 'à vontade' }, alternatives: [] },
+        ]},
+        'Lanche da tarde': { time: '16:00', rows: [
+          { category: '', main: { item: 'Whey protein', quantity: '30g' }, alternatives: [{ item: 'Ovo cozido', quantity: '2 unidades' }, { item: 'Atum', quantity: '80g' }] },
+          { category: '', main: { item: 'Fruta', quantity: '1 porção' }, alternatives: [{ item: 'Granola', quantity: '20g' }, { item: 'Biscoito de arroz', quantity: '4 unidades' }] },
+        ]},
+        'Jantar': { time: '19:30', rows: [
+          { category: '', main: { item: 'Peixe grelhado', quantity: '120g' }, alternatives: [{ item: 'Frango', quantity: '120g' }, { item: 'Carne magra', quantity: '100g' }] },
+          { category: '', main: { item: 'Legumes refogados', quantity: '150g' }, alternatives: [{ item: 'Salada completa', quantity: 'à vontade' }, { item: 'Sopa de legumes', quantity: '300ml' }] },
+        ]},
+        'Ceia': { time: '21:00', rows: [
+          { category: '', main: { item: 'Chá de camomila', quantity: '200ml' }, alternatives: [{ item: 'Iogurte', quantity: '100ml' }] },
+        ]},
+      };
+      monthlyPlan = {
+        meals: mealNames.map((mn: string) => ({
+          meal_name: mn,
+          time_suggestion: defaultMeals[mn]?.time || '',
+          ingredient_rows: defaultMeals[mn]?.rows || [{ category: '', main: { item: 'Alimento', quantity: '100g' }, alternatives: [] }],
+          macros: planData.meal_plan_base,
+        })),
+        hydration: 'Beber pelo menos 2L de água por dia',
+        exercise_plan: planData.exercise_plan_base,
+      };
+    }
 
     // 6. Create plan in DB
-    const planResult2 = await api('create_plan', { plan: { patient_id: userId, status: 'pending_review', duration_months: planData.duration_months || 6, goals: planData.goals, meal_plan_base: planData.meal_plan_base, exercise_plan_base: planData.exercise_plan_base, scientific_rationale: planData.scientific_rationale, monthly_plan: monthlyResult.monthlyPlan, onboarding_conversation: [{ role: 'system', content: patientSummary }] } });
+    const planResult2 = await api('create_plan', { plan: { patient_id: userId, status: 'pending_review', duration_months: planData.duration_months || 6, goals: planData.goals, meal_plan_base: planData.meal_plan_base, exercise_plan_base: planData.exercise_plan_base, scientific_rationale: planData.scientific_rationale, monthly_plan: monthlyPlan, onboarding_conversation: [{ role: 'system', content: patientSummary }] } });
 
     if (planResult2.error) console.error('Create plan error:', planResult2.error);
 
     const newPlanId = planResult2.planId;
     if (newPlanId) setPlanId(newPlanId);
 
-    setGeneratedPlan({ ...planData, monthly_plan: monthlyResult.monthlyPlan, plan_id: newPlanId });
+    setGeneratedPlan({ ...planData, monthly_plan: monthlyPlan, plan_id: newPlanId });
     setStep('review');
     setLoading(false);
   }
