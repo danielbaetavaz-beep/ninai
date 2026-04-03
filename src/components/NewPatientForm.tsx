@@ -170,12 +170,17 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
     });
     const planResult2 = await planRes2.json();
 
-    if (planResult2.planId) {
-      setPlanId(planResult2.planId);
-      await supabase.from('patient_files').update({ plan_id: planResult2.planId }).eq('patient_id', userId).is('plan_id', null);
+    if (planResult2.error) {
+      console.error('Create plan error:', planResult2.error);
     }
 
-    setGeneratedPlan({ ...planData, monthly_plan: monthlyResult.monthlyPlan, plan_id: planResult2.planId });
+    const newPlanId = planResult2.planId;
+    if (newPlanId) {
+      setPlanId(newPlanId);
+      await supabase.from('patient_files').update({ plan_id: newPlanId }).eq('patient_id', userId).is('plan_id', null);
+    }
+
+    setGeneratedPlan({ ...planData, monthly_plan: monthlyResult.monthlyPlan, plan_id: newPlanId });
     setStep('review');
     setLoading(false);
   }
@@ -268,18 +273,21 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
   }
 
   async function approvePlan() {
-    if (!planId) { alert('Erro: plano não encontrado. Tente gerar novamente.'); return; }
+    const pid = planId || generatedPlan?.plan_id;
+    if (!pid) { alert('Erro: plano não encontrado. Tente gerar novamente.'); return; }
     setLoading(true);
     try {
-      await fetch('/api/approve-plan', {
+      const res = await fetch('/api/approve-plan', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          planId,
+          planId: pid,
           goals: generatedPlan.goals,
           meal_plan_base: { ...generatedPlan.meal_plan_base, hide_macros: hideMacrosFromPatient },
           monthly_plan: generatedPlan.monthly_plan,
         }),
       });
+      const result = await res.json();
+      if (result.error) { alert('Erro: ' + result.error); setLoading(false); return; }
       setLoading(false);
       onDone();
     } catch (err: any) {
