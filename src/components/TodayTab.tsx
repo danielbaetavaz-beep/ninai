@@ -27,6 +27,7 @@ export default function TodayTab({ plan }: { plan: any }) {
 
   const today = getLocalToday();
   const monthlyPlan = plan?.monthly_plan;
+  const hideMacros = plan?.meal_plan_base?.hide_macros === true;
 
   useEffect(() => { loadTodayMeals(); }, []);
 
@@ -138,7 +139,7 @@ export default function TodayTab({ plan }: { plan: any }) {
               </p>
               <p className="text-xs text-gray-600 mt-1">{confirmData.analysis.feedback}</p>
             </div>
-            {confirmData.analysis.estimated_macros && (
+            {confirmData.analysis.estimated_macros && !hideMacros && (
               <div className="grid grid-cols-4 gap-2 mb-4">
                 {[{ l: 'Prot', v: confirmData.analysis.estimated_macros.protein_g }, { l: 'Carb', v: confirmData.analysis.estimated_macros.carbs_g }, { l: 'Gord', v: confirmData.analysis.estimated_macros.fat_g }, { l: 'Kcal', v: confirmData.analysis.estimated_macros.calories }].map(m => (
                   <div key={m.l} className="bg-gray-50 rounded-lg p-2 text-center"><p className="text-sm font-medium">{Math.round(m.v || 0)}</p><p className="text-[10px] text-gray-400">{m.l}</p></div>
@@ -231,7 +232,7 @@ export default function TodayTab({ plan }: { plan: any }) {
                   </div>
 
                   {/* Macros */}
-                  {planMeal.macros && (
+                  {planMeal.macros && !hideMacros && (
                     <div className="flex justify-center gap-4 mb-3">
                       {[{ l: 'P', v: planMeal.macros.protein_g, u: 'g' }, { l: 'C', v: planMeal.macros.carbs_g, u: 'g' }, { l: 'G', v: planMeal.macros.fat_g, u: 'g' }, { l: '', v: planMeal.macros.calories, u: 'kcal' }].map((m, i) => (
                         <span key={i} className="text-[10px] text-gray-400">{m.l}{m.l ? ':' : ''}{m.v}{m.u}</span>
