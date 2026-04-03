@@ -17,6 +17,10 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
   const [generatedPlan, setGeneratedPlan] = useState<any>(null);
   const [planId, setPlanId] = useState<string | null>(null);
   const [patientId, setPatientId] = useState<string | null>(null);
+  const [showMacrosToPatient, setShowMacrosToPatient] = useState(true);
+  const [editingMealIdx, setEditingMealIdx] = useState<number | null>(null);
+  const [hideMacros, setHideMacros] = useState(false);
+  const [expandedMealIdx, setExpandedMealIdx] = useState<number | null>(null);
 
   // Basics
   const [name, setName] = useState('');
@@ -172,6 +176,72 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
     setLoading(false);
   }
 
+  function updateMonthlyMeal(mealIdx: number, field: string, value: any) {
+    const u = { ...generatedPlan };
+    u.monthly_plan = { ...u.monthly_plan, meals: [...u.monthly_plan.meals] };
+    u.monthly_plan.meals[mealIdx] = { ...u.monthly_plan.meals[mealIdx], [field]: value };
+    setGeneratedPlan(u);
+  }
+
+  function updateIngredientRow(mealIdx: number, rowIdx: number, field: string, subField: string, value: string) {
+    const u = { ...generatedPlan };
+    u.monthly_plan = { ...u.monthly_plan, meals: [...u.monthly_plan.meals] };
+    const meal = { ...u.monthly_plan.meals[mealIdx] };
+    meal.ingredient_rows = [...meal.ingredient_rows];
+    const row = { ...meal.ingredient_rows[rowIdx] };
+    if (field === 'main') { row.main = { ...row.main, [subField]: value }; }
+    else if (field === 'category') { row.category = value; }
+    meal.ingredient_rows[rowIdx] = row;
+    u.monthly_plan.meals[mealIdx] = meal;
+    setGeneratedPlan(u);
+  }
+
+  function updateAlternative(mealIdx: number, rowIdx: number, altIdx: number, subField: string, value: string) {
+    const u = { ...generatedPlan };
+    u.monthly_plan = { ...u.monthly_plan, meals: [...u.monthly_plan.meals] };
+    const meal = { ...u.monthly_plan.meals[mealIdx] };
+    meal.ingredient_rows = [...meal.ingredient_rows];
+    const row = { ...meal.ingredient_rows[rowIdx] };
+    row.alternatives = [...row.alternatives];
+    row.alternatives[altIdx] = { ...row.alternatives[altIdx], [subField]: value };
+    meal.ingredient_rows[rowIdx] = row;
+    u.monthly_plan.meals[mealIdx] = meal;
+    setGeneratedPlan(u);
+  }
+
+  function addMealToMonthly() {
+    const u = { ...generatedPlan };
+    u.monthly_plan = { ...u.monthly_plan, meals: [...(u.monthly_plan?.meals || []), { meal_name: 'Nova refeição', time_suggestion: '', ingredient_rows: [{ category: '', main: { item: '', quantity: '' }, alternatives: [] }], macros: { protein_g: 0, carbs_g: 0, fat_g: 0, calories: 0 } }] };
+    setGeneratedPlan(u);
+  }
+
+  function removeMealFromMonthly(idx: number) {
+    const u = { ...generatedPlan };
+    u.monthly_plan = { ...u.monthly_plan, meals: u.monthly_plan.meals.filter((_: any, i: number) => i !== idx) };
+    setGeneratedPlan(u);
+  }
+
+  function addIngredientRow(mealIdx: number) {
+    const u = { ...generatedPlan };
+    u.monthly_plan = { ...u.monthly_plan, meals: [...u.monthly_plan.meals] };
+    const meal = { ...u.monthly_plan.meals[mealIdx] };
+    meal.ingredient_rows = [...meal.ingredient_rows, { category: '', main: { item: '', quantity: '' }, alternatives: [{ item: '', quantity: '' }] }];
+    u.monthly_plan.meals[mealIdx] = meal;
+    setGeneratedPlan(u);
+  }
+
+  function addAlternative(mealIdx: number, rowIdx: number) {
+    const u = { ...generatedPlan };
+    u.monthly_plan = { ...u.monthly_plan, meals: [...u.monthly_plan.meals] };
+    const meal = { ...u.monthly_plan.meals[mealIdx] };
+    meal.ingredient_rows = [...meal.ingredient_rows];
+    const row = { ...meal.ingredient_rows[rowIdx] };
+    row.alternatives = [...row.alternatives, { item: '', quantity: '' }];
+    meal.ingredient_rows[rowIdx] = row;
+    u.monthly_plan.meals[mealIdx] = meal;
+    setGeneratedPlan(u);
+  }
+
   function getSmartFallback() {
     const w = Number(weight); const h = Number(height); const a = Number(age);
     const tmb = gender === 'Masculino' ? 88.36 + (13.4 * w) + (4.8 * h) - (5.7 * a) : 447.6 + (9.2 * w) + (3.1 * h) - (4.3 * a);
@@ -201,7 +271,8 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
       approved_at: new Date().toISOString(),
       start_date: new Date().toISOString().split('T')[0],
       goals: generatedPlan.goals,
-      meal_plan_base: generatedPlan.meal_plan_base,
+      meal_plan_base: { ...generatedPlan.meal_plan_base, hide_macros: hideMacros },
+      monthly_plan: generatedPlan.monthly_plan,
     }).eq('id', planId);
     setLoading(false);
     onDone();
@@ -425,17 +496,23 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
           </div>
 
           {/* Editable Goals */}
-          <p className="text-sm font-medium mb-2">Metas <span className="text-xs text-gray-400 font-normal">(toque para editar)</span></p>
+          <p className="text-sm font-medium mb-2">Metas</p>
           <div className="space-y-2 mb-4">
             {(generatedPlan.goals || []).map((g: any, i: number) => (
-              <div key={i} className="bg-teal-50 rounded-xl p-3 space-y-1.5">
-                <input value={g.description} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], description: e.target.value }; setGeneratedPlan(u); }}
-                  className="w-full text-sm font-medium text-teal-800 bg-transparent border-b border-teal-200 pb-1 focus:outline-none focus:border-teal-400" />
-                <div className="flex gap-2">
-                  <input value={g.measurement} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], measurement: e.target.value }; setGeneratedPlan(u); }}
-                    className="flex-1 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none" placeholder="Como medir" />
-                  <input value={g.timeframe} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], timeframe: e.target.value }; setGeneratedPlan(u); }}
-                    className="w-24 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none text-right" placeholder="Prazo" />
+              <div key={i} className="bg-teal-50 rounded-xl p-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 space-y-1.5">
+                    <input value={g.description} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], description: e.target.value }; setGeneratedPlan(u); }}
+                      className="w-full text-sm font-medium text-teal-800 bg-transparent border-b border-teal-200 pb-1 focus:outline-none focus:border-teal-400" />
+                    <div className="flex gap-2">
+                      <input value={g.measurement} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], measurement: e.target.value }; setGeneratedPlan(u); }}
+                        className="flex-1 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none" placeholder="Como medir" />
+                      <input value={g.timeframe} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], timeframe: e.target.value }; setGeneratedPlan(u); }}
+                        className="w-24 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none text-right" placeholder="Prazo" />
+                    </div>
+                  </div>
+                  <button onClick={() => { const u = { ...generatedPlan }; u.goals = u.goals.filter((_: any, j: number) => j !== i); setGeneratedPlan(u); }}
+                    className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center text-red-500 text-xs shrink-0 mt-1">✕</button>
                 </div>
               </div>
             ))}
@@ -443,8 +520,14 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
               className="w-full py-2 text-xs text-teal-600 border border-dashed border-teal-200 rounded-xl">+ Adicionar meta</button>
           </div>
 
-          {/* Editable Macros */}
-          <p className="text-sm font-medium mb-2">Plano alimentar <span className="text-xs text-gray-400 font-normal">(editável)</span></p>
+          {/* Macros with hide toggle */}
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">Plano alimentar</p>
+            <label className="flex items-center gap-1.5 text-[10px] text-gray-500">
+              <input type="checkbox" checked={hideMacros} onChange={e => setHideMacros(e.target.checked)} className="rounded w-3.5 h-3.5" />
+              Ocultar macros do paciente
+            </label>
+          </div>
           <div className="grid grid-cols-5 gap-2 mb-4">
             {[
               { l: 'Kcal', k: 'calories', v: mp.calories },
@@ -460,19 +543,70 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
               </div>
             ))}
           </div>
+          {hideMacros && <p className="text-[10px] text-amber-600 mb-4 -mt-2">Os macros serão salvos mas não aparecerão para o paciente.</p>}
 
-          {/* Monthly plan preview */}
+          {/* Monthly plan — full editable */}
           {generatedPlan.monthly_plan?.meals && (
             <>
-              <p className="text-sm font-medium mb-2">Cardápio mensal ({generatedPlan.monthly_plan.meals.length} refeições)</p>
-              <div className="space-y-2 mb-4">
-                {generatedPlan.monthly_plan.meals.map((meal: any, i: number) => (
-                  <div key={i} className="bg-gray-50 rounded-xl p-3">
-                    <p className="text-xs font-medium text-gray-800">{meal.meal_name}</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">{(meal.ingredient_rows || []).map((r: any) => `${r.main.item} ${r.main.quantity}`).join(' + ')}</p>
-                    <p className="text-[9px] text-gray-400 mt-0.5">{(meal.ingredient_rows || []).length} categorias, cada uma com alternativas</p>
-                  </div>
-                ))}
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-medium">Cardápio mensal</p>
+                <button onClick={addMealToMonthly} className="text-[10px] text-teal-600 font-medium">+ Refeição</button>
+              </div>
+              <div className="space-y-3 mb-4">
+                {generatedPlan.monthly_plan.meals.map((meal: any, mealIdx: number) => {
+                  const isExpanded = expandedMealIdx === mealIdx;
+                  return (
+                    <div key={mealIdx} className={`rounded-xl overflow-hidden ${isExpanded ? 'ring-1 ring-teal-300 bg-white' : 'bg-gray-50'}`}>
+                      {/* Meal header */}
+                      <div className="flex items-center gap-2 p-3 cursor-pointer" onClick={() => setExpandedMealIdx(isExpanded ? null : mealIdx)}>
+                        <div className="w-8 h-8 rounded-lg bg-teal-100 flex items-center justify-center text-teal-700 text-xs font-medium shrink-0">{mealIdx + 1}</div>
+                        <div className="flex-1 min-w-0">
+                          {isExpanded ? (
+                            <input value={meal.meal_name} onChange={e => updateMonthlyMeal(mealIdx, 'meal_name', e.target.value)} onClick={e => e.stopPropagation()}
+                              className="w-full text-xs font-medium bg-transparent border-b border-gray-200 pb-0.5 focus:outline-none focus:border-teal-400" />
+                          ) : (
+                            <p className="text-xs font-medium">{meal.meal_name}</p>
+                          )}
+                          <p className="text-[10px] text-gray-400 truncate mt-0.5">{(meal.ingredient_rows || []).map((r: any) => r.main?.item).filter(Boolean).join(' · ')}</p>
+                        </div>
+                        <button onClick={(e) => { e.stopPropagation(); removeMealFromMonthly(mealIdx); }} className="w-6 h-6 rounded-full bg-red-50 flex items-center justify-center text-red-400 text-[10px] shrink-0">✕</button>
+                      </div>
+
+                      {/* Expanded meal editor */}
+                      {isExpanded && (
+                        <div className="px-3 pb-3 border-t border-gray-100">
+                          {/* Ingredient rows as grid */}
+                          {(meal.ingredient_rows || []).map((row: any, rowIdx: number) => (
+                            <div key={rowIdx} className="mt-3">
+                              {/* Main option tile */}
+                              <div className="bg-teal-500 text-white rounded-xl p-2.5 mb-1.5">
+                                <div className="flex gap-2">
+                                  <input value={row.main?.item || ''} onChange={e => updateIngredientRow(mealIdx, rowIdx, 'main', 'item', e.target.value)}
+                                    placeholder="Ingrediente" className="flex-1 text-xs font-medium bg-transparent border-b border-teal-300 pb-0.5 focus:outline-none placeholder-teal-200 text-white" />
+                                  <input value={row.main?.quantity || ''} onChange={e => updateIngredientRow(mealIdx, rowIdx, 'main', 'quantity', e.target.value)}
+                                    placeholder="Qtd" className="w-20 text-xs bg-transparent border-b border-teal-300 pb-0.5 focus:outline-none text-right placeholder-teal-200 text-white" />
+                                </div>
+                              </div>
+                              {/* Alternatives */}
+                              <div className="flex gap-1.5 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
+                                {(row.alternatives || []).map((alt: any, altIdx: number) => (
+                                  <div key={altIdx} className="shrink-0 bg-teal-50 rounded-lg px-2.5 py-2 min-w-[110px]">
+                                    <input value={alt.item || ''} onChange={e => updateAlternative(mealIdx, rowIdx, altIdx, 'item', e.target.value)}
+                                      placeholder="Alternativa" className="w-full text-[10px] font-medium bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none text-teal-800 placeholder-teal-300" />
+                                    <input value={alt.quantity || ''} onChange={e => updateAlternative(mealIdx, rowIdx, altIdx, 'quantity', e.target.value)}
+                                      placeholder="Qtd" className="w-full text-[9px] bg-transparent focus:outline-none text-teal-600 mt-0.5 placeholder-teal-300" />
+                                  </div>
+                                ))}
+                                <button onClick={() => addAlternative(mealIdx, rowIdx)} className="shrink-0 w-8 h-full rounded-lg border border-dashed border-teal-200 flex items-center justify-center text-teal-400 text-lg">+</button>
+                              </div>
+                            </div>
+                          ))}
+                          <button onClick={() => addIngredientRow(mealIdx)} className="w-full mt-2 py-2 text-[10px] text-teal-600 border border-dashed border-teal-200 rounded-xl">+ Adicionar ingrediente</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}
