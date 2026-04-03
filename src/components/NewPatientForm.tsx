@@ -519,10 +519,30 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
 
           {/* ── CARDÁPIO MENSAL ── */}
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-medium">Cardápio mensal</p>
+            <p className="text-sm font-medium">Cardápio mensal <span className="text-xs text-gray-400 font-normal">({(generatedPlan.monthly_plan?.meals || []).length} refeições)</span></p>
             <button onClick={() => updatePlan(p => { if (!p.monthly_plan) p.monthly_plan = { meals: [] }; p.monthly_plan.meals.push({ meal_name: 'Nova refeição', time_suggestion: '', ingredient_rows: [{ category: '', main: { item: 'Alimento', quantity: '100g' }, alternatives: [] }], macros: {} }); return p; })}
               className="text-xs text-teal-600 font-medium px-3 py-1.5 bg-teal-50 rounded-lg ring-1 ring-teal-200 active:scale-95 transition-transform">+ Refeição</button>
           </div>
+
+          {(!generatedPlan.monthly_plan?.meals || generatedPlan.monthly_plan.meals.length === 0) && (
+            <div className="bg-amber-50 rounded-xl p-4 mb-3 text-center">
+              <p className="text-xs text-amber-800 font-medium mb-2">Cardápio não foi gerado automaticamente</p>
+              <p className="text-[10px] text-amber-600 mb-3">Clique em "+ Refeição" acima para adicionar manualmente, ou:</p>
+              <button onClick={async () => {
+                setLoading(true);
+                const allRestrictions = [...restrictions, ...(otherRestriction ? [otherRestriction] : [])];
+                try {
+                  const res = await fetch('/api/generate-monthly-plan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mealPlanBase: generatedPlan.meal_plan_base, exercisePlanBase: generatedPlan.exercise_plan_base, goals: generatedPlan.goals, restrictions: allRestrictions.join(', '), ninaKnowledge: knowledge }) });
+                  const result = await res.json();
+                  if (result.monthlyPlan?.meals) { updatePlan(p => { p.monthly_plan = result.monthlyPlan; return p; }); }
+                  else { alert('IA não conseguiu gerar. Use "+ Refeição" para criar manualmente.'); }
+                } catch { alert('Erro na geração. Use "+ Refeição" para criar manualmente.'); }
+                setLoading(false);
+              }} disabled={loading} className="px-4 py-2 bg-teal-500 text-white rounded-lg text-xs font-medium disabled:opacity-50">
+                {loading ? 'Gerando...' : '🔄 Tentar gerar cardápio novamente'}
+              </button>
+            </div>
+          )}
 
           {(generatedPlan.monthly_plan?.meals || []).map((meal: any, mi: number) => {
             const isOpen = expandedReviewMeal === mi;
