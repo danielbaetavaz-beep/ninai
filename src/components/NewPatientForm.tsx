@@ -153,26 +153,29 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
     });
     const monthlyResult = await monthlyRes.json();
 
-    // 6. Create plan in DB
-    const { data: newPlan } = await supabase.from('plans').insert({
-      patient_id: userId,
-      status: 'pending_review',
-      duration_months: planData.duration_months || 6,
-      goals: planData.goals,
-      meal_plan_base: planData.meal_plan_base,
-      exercise_plan_base: planData.exercise_plan_base,
-      scientific_rationale: planData.scientific_rationale,
-      monthly_plan: monthlyResult.monthlyPlan,
-      onboarding_conversation: [{ role: 'system', content: patientSummary }],
-    }).select().single();
+    // 6. Create plan in DB (use service role to bypass RLS)
+    const planRes2 = await fetch('/api/create-plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        patient_id: userId,
+        status: 'pending_review',
+        duration_months: planData.duration_months || 6,
+        goals: planData.goals,
+        meal_plan_base: planData.meal_plan_base,
+        exercise_plan_base: planData.exercise_plan_base,
+        scientific_rationale: planData.scientific_rationale,
+        monthly_plan: monthlyResult.monthlyPlan,
+        onboarding_conversation: [{ role: 'system', content: patientSummary }],
+      }),
+    });
+    const planResult2 = await planRes2.json();
 
-    if (newPlan) {
-      setPlanId(newPlan.id);
-      // Update patient_files with plan_id
-      await supabase.from('patient_files').update({ plan_id: newPlan.id }).eq('patient_id', userId).is('plan_id', null);
+    if (planResult2.planId) {
+      setPlanId(planResult2.planId);
+      await supabase.from('patient_files').update({ plan_id: planResult2.planId }).eq('patient_id', userId).is('plan_id', null);
     }
 
-    setGeneratedPlan({ ...planData, monthly_plan: monthlyResult.monthlyPlan, plan_id: newPlan?.id });
+    setGeneratedPlan({ ...planData, monthly_plan: monthlyResult.monthlyPlan, plan_id: planResult2.planId });
     setStep('review');
     setLoading(false);
   }
@@ -265,18 +268,24 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
   }
 
   async function approvePlan() {
-    if (!planId) return;
+    if (!planId) { alert('Erro: plano não encontrado. Tente gerar novamente.'); return; }
     setLoading(true);
-    await supabase.from('plans').update({
-      status: 'approved',
-      approved_at: new Date().toISOString(),
-      start_date: new Date().toISOString().split('T')[0],
-      goals: generatedPlan.goals,
-      meal_plan_base: { ...generatedPlan.meal_plan_base, hide_macros: hideMacrosFromPatient },
-      monthly_plan: generatedPlan.monthly_plan,
-    }).eq('id', planId);
-    setLoading(false);
-    onDone();
+    try {
+      await fetch('/api/approve-plan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId,
+          goals: generatedPlan.goals,
+          meal_plan_base: { ...generatedPlan.meal_plan_base, hide_macros: hideMacrosFromPatient },
+          monthly_plan: generatedPlan.monthly_plan,
+        }),
+      });
+      setLoading(false);
+      onDone();
+    } catch (err: any) {
+      alert('Erro ao aprovar: ' + err.message);
+      setLoading(false);
+    }
   }
 
   // Progress
