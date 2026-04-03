@@ -203,7 +203,11 @@ export default function TodayTab({ plan }: { plan: any }) {
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-medium ${isCompleted ? (record.flag === 'green' ? 'text-green-800' : record.flag === 'yellow' ? 'text-amber-800' : 'text-red-800') : 'text-gray-800'}`}>{planMeal.meal_name}</p>
                   <p className={`text-xs truncate mt-0.5 ${isCompleted ? 'text-gray-500' : 'text-gray-400'}`}>
-                    {isCompleted ? (record.flag === 'green' ? 'Seguiu o plano' : record.actual_description || 'Registrado') : (planMeal.ingredient_rows || []).map((r: any) => r.main.item).join(' · ')}
+                    {isCompleted ? (record.flag === 'green' ? 'Seguiu o plano' : record.actual_description || 'Registrado') : (planMeal.ingredient_rows || []).map((r: any, ri: number) => {
+                      const sel = mealSelections[ri];
+                      if (sel !== undefined && sel >= 0 && r.alternatives?.[sel]) return r.alternatives[sel].item;
+                      return r.main.item;
+                    }).join(' · ')}
                   </p>
                 </div>
                 {!isCompleted && (
@@ -216,16 +220,18 @@ export default function TodayTab({ plan }: { plan: any }) {
                 <div className="px-4 pb-4">
                   <div className="h-px bg-gray-100 -mx-4 mb-4" />
 
-                  {/* Ingredient grid — main options */}
+                  {/* Ingredient grid — shows selected option per row */}
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     {(planMeal.ingredient_rows || []).map((row: any, rowIdx: number) => {
                       const c = COLORS[rowIdx % COLORS.length];
-                      const isSelected = mealSelections[rowIdx] === undefined;
+                      const selIdx = mealSelections[rowIdx];
+                      const displayItem = selIdx !== undefined && selIdx >= 0 && row.alternatives?.[selIdx]
+                        ? row.alternatives[selIdx]
+                        : row.main;
                       return (
-                        <div key={rowIdx} className="rounded-xl p-3 text-center transition-all" style={{ background: isSelected ? c.bg : c.light, color: isSelected ? c.text : c.darkText }}>
-                          <p className="text-[10px] uppercase tracking-wider opacity-70 mb-0.5">{row.category}</p>
-                          <p className="text-xs font-medium leading-tight">{row.main.item}</p>
-                          <p className="text-[10px] opacity-70 mt-0.5">{row.main.quantity}</p>
+                        <div key={rowIdx} className="rounded-xl p-3 text-center transition-all" style={{ background: c.bg, color: c.text }}>
+                          <p className="text-xs font-medium leading-tight">{displayItem.item}</p>
+                          <p className="text-[10px] opacity-70 mt-0.5">{displayItem.quantity}</p>
                         </div>
                       );
                     })}

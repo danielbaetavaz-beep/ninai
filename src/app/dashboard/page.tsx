@@ -5,7 +5,6 @@ import { getLocalToday } from '@/lib/dates';
 import UserMenu from '@/components/UserMenu';
 import JourneyTab from '@/components/JourneyTab';
 import TodayTab from '@/components/TodayTab';
-import ScheduleTab from '@/components/ScheduleTab';
 import PlanTab from '@/components/PlanTab';
 import ChatTab from '@/components/ChatTab';
 import GroceryTab from '@/components/GroceryTab';
@@ -138,7 +137,6 @@ export default function Dashboard() {
       >
         {tab === 'jornada' && <JourneyTab plan={plan} />}
         {tab === 'hoje' && <TodayTab plan={plan} />}
-        {tab === 'programacao' && <ScheduleTab plan={plan} onPlanGenerated={loadData} />}
         {tab === 'compras' && <GroceryTab plan={plan} />}
         {tab === 'mural' && <BulletinTab />}
         {tab === 'chat' && <ChatTab plan={plan} />}
@@ -170,12 +168,12 @@ function BottomNav({ tab, setTab, profileName }: { tab: string; setTab: (t: stri
         <rect x="15" y="3" width="2" height="4" rx="1" fill={active ? '#0F6E56' : '#bbb'}/>
       </svg>
     )},
-    { id: 'programacao', label: 'Agenda', icon: (active: boolean) => (
+    { id: 'compras', label: 'Compras', icon: (active: boolean) => (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <rect x="4" y="3" width="16" height="18" rx="2" fill={active ? '#1D9E75' : '#d0d0d0'} opacity={active ? 1 : 0.6}/>
-        <line x1="8" y1="8" x2="16" y2="8" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-        <line x1="8" y1="12" x2="16" y2="12" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-        <line x1="8" y1="16" x2="13" y2="16" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+        <path d="M6 6H4L2 20H22L20 6H18" stroke={active ? '#1D9E75' : '#d0d0d0'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M6 6C6 3.79 8.69 2 12 2C15.31 2 18 3.79 18 6" stroke={active ? '#1D9E75' : '#d0d0d0'} strokeWidth="2"/>
+        <line x1="9" y1="11" x2="9" y2="15" stroke={active ? '#1D9E75' : '#d0d0d0'} strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="15" y1="11" x2="15" y2="15" stroke={active ? '#1D9E75' : '#d0d0d0'} strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     )},
     { id: 'mural', label: 'Mural', icon: (active: boolean) => (
