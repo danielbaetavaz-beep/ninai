@@ -324,6 +324,7 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
                 <button key={r} onClick={() => toggleRestriction(r)} className={`px-3 py-2 rounded-xl text-xs font-medium ${r === 'Nenhuma' ? (restrictions.length === 0 ? 'bg-teal-400 text-white' : 'bg-gray-50 text-gray-600') : (restrictions.includes(r) ? 'bg-teal-400 text-white' : 'bg-gray-50 text-gray-600')}`}>{r}</button>
               ))}
             </div>
+            <input type="text" value={otherRestriction} onChange={e => setOtherRestriction(e.target.value)} placeholder="Outra restrição (opcional)" className="w-full mt-2 px-3 py-2.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-teal-400" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -417,29 +418,44 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
           <button onClick={() => setStep('uploads')} className="text-gray-400 text-sm">← Voltar</button>
           <p className="text-sm font-medium flex-1">Revisar plano — {name}</p>
         </div>
-        <div className="p-5">
+        <div className="p-5 pb-32">
           <div className="bg-green-50 rounded-xl p-3 mb-4 flex items-center gap-2">
             <span className="text-lg">✨</span>
-            <p className="text-xs text-green-800">Plano gerado com base nos seus conhecimentos e nos dados de {name}.</p>
+            <p className="text-xs text-green-800">Plano gerado com base nos seus conhecimentos e nos dados de {name}. Edite o que precisar.</p>
           </div>
 
-          {/* Goals */}
-          <p className="text-sm font-medium mb-2">Metas</p>
+          {/* Editable Goals */}
+          <p className="text-sm font-medium mb-2">Metas <span className="text-xs text-gray-400 font-normal">(toque para editar)</span></p>
           <div className="space-y-2 mb-4">
             {(generatedPlan.goals || []).map((g: any, i: number) => (
-              <div key={i} className="bg-teal-50 rounded-xl p-3">
-                <p className="text-sm font-medium text-teal-800">{g.description}</p>
-                <p className="text-xs text-teal-600">{g.measurement} — {g.timeframe}</p>
+              <div key={i} className="bg-teal-50 rounded-xl p-3 space-y-1.5">
+                <input value={g.description} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], description: e.target.value }; setGeneratedPlan(u); }}
+                  className="w-full text-sm font-medium text-teal-800 bg-transparent border-b border-teal-200 pb-1 focus:outline-none focus:border-teal-400" />
+                <div className="flex gap-2">
+                  <input value={g.measurement} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], measurement: e.target.value }; setGeneratedPlan(u); }}
+                    className="flex-1 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none" placeholder="Como medir" />
+                  <input value={g.timeframe} onChange={e => { const u = { ...generatedPlan }; u.goals = [...u.goals]; u.goals[i] = { ...u.goals[i], timeframe: e.target.value }; setGeneratedPlan(u); }}
+                    className="w-24 text-xs text-teal-600 bg-transparent border-b border-teal-100 pb-0.5 focus:outline-none text-right" placeholder="Prazo" />
+                </div>
               </div>
             ))}
+            <button onClick={() => { const u = { ...generatedPlan }; u.goals = [...u.goals, { description: 'Nova meta', measurement: 'Como medir', timeframe: '3 meses' }]; setGeneratedPlan(u); }}
+              className="w-full py-2 text-xs text-teal-600 border border-dashed border-teal-200 rounded-xl">+ Adicionar meta</button>
           </div>
 
-          {/* Macros */}
-          <p className="text-sm font-medium mb-2">Plano alimentar</p>
+          {/* Editable Macros */}
+          <p className="text-sm font-medium mb-2">Plano alimentar <span className="text-xs text-gray-400 font-normal">(editável)</span></p>
           <div className="grid grid-cols-5 gap-2 mb-4">
-            {[{ l: 'Kcal', v: mp.calories }, { l: 'Prot', v: mp.protein_g, u: 'g' }, { l: 'Carb', v: mp.carbs_g, u: 'g' }, { l: 'Gord', v: mp.fat_g, u: 'g' }, { l: 'Ref/dia', v: mp.meals_per_day }].map(m => (
+            {[
+              { l: 'Kcal', k: 'calories', v: mp.calories },
+              { l: 'Prot(g)', k: 'protein_g', v: mp.protein_g },
+              { l: 'Carb(g)', k: 'carbs_g', v: mp.carbs_g },
+              { l: 'Gord(g)', k: 'fat_g', v: mp.fat_g },
+              { l: 'Ref/dia', k: 'meals_per_day', v: mp.meals_per_day },
+            ].map(m => (
               <div key={m.l} className="bg-gray-50 rounded-xl p-2 text-center">
-                <p className="text-sm font-medium">{m.v}{m.u || ''}</p>
+                <input type="number" value={m.v || ''} onChange={e => { const u = { ...generatedPlan }; u.meal_plan_base = { ...u.meal_plan_base, [m.k]: Number(e.target.value) }; setGeneratedPlan(u); }}
+                  className="w-full text-sm font-medium text-center bg-transparent focus:outline-none" />
                 <p className="text-[9px] text-gray-400">{m.l}</p>
               </div>
             ))}
@@ -469,8 +485,8 @@ export default function NewPatientForm({ profile, knowledge, onDone, onBack }: P
             </div>
           )}
 
-          <div className="space-y-2">
-            <button onClick={approvePlan} disabled={loading} className="w-full py-4 bg-teal-500 text-white rounded-2xl text-sm font-medium disabled:opacity-50">
+          <div className="space-y-2 pb-4">
+            <button onClick={approvePlan} disabled={loading} className="w-full py-4 bg-teal-500 text-white rounded-2xl text-sm font-medium disabled:opacity-50 active:scale-[0.98] transition-transform">
               {loading ? 'Aprovando...' : '✓ Aprovar e ativar plano'}
             </button>
             <p className="text-[10px] text-gray-400 text-center">O paciente receberá acesso ao app com este plano. Senha inicial: 121212</p>
