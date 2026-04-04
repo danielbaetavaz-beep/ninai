@@ -397,11 +397,11 @@ export default function JourneyTab({ plan }: { plan: any }) {
         </div>
       </div>
 
-      {/* Day summary modal */}
+      {/* Day summary modal with retroactive registration */}
       {selectedDay && (
         <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setSelectedDay(null)}>
           <div className="absolute inset-0 bg-black/30" />
-          <div className="relative bg-white rounded-t-2xl w-full max-w-md p-5 pb-8" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+          <div className="relative bg-white rounded-t-2xl w-full max-w-md p-5 pb-8 max-h-[85vh] overflow-y-auto" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -416,17 +416,57 @@ export default function JourneyTab({ plan }: { plan: any }) {
               <div className="flex-1 bg-gray-50 rounded-xl p-3 text-center"><p className="text-lg font-medium">{selectedDay.mealsCompleted}/{selectedDay.mealsTotal}</p><p className="text-[10px] text-gray-400">refeições</p></div>
               <div className={`flex-1 rounded-xl p-3 text-center ${selectedDay.exerciseDone ? 'bg-blue-50' : 'bg-gray-50'}`}><p className="text-lg font-medium">{selectedDay.exerciseDone ? '✓' : '—'}</p><p className="text-[10px] text-gray-400">exercício</p></div>
             </div>
-            {selectedDayMeals.length > 0 ? (
-              <div className="space-y-2">
-                {selectedDayMeals.map((meal: any, i: number) => (
-                  <div key={i} className={`p-2.5 rounded-lg ${meal.flag === 'green' ? 'bg-green-50' : meal.flag === 'yellow' ? 'bg-amber-50' : meal.flag === 'red' ? 'bg-red-50' : 'bg-gray-50'}`}>
-                    <div className="flex items-center justify-between"><p className="text-xs font-medium">{meal.meal_name}</p>{meal.flag && <div className={`w-2 h-2 rounded-full ${meal.flag === 'green' ? 'bg-green-400' : meal.flag === 'yellow' ? 'bg-amber-400' : 'bg-red-400'}`} />}</div>
-                    <p className="text-[11px] text-gray-600 mt-0.5">{meal.actual_description || meal.planned_description || meal.feedback}</p>
+
+            {/* Show each meal from monthly plan */}
+            {(plan.monthly_plan?.meals || []).map((planMeal: any, i: number) => {
+              const record = selectedDayMeals.find((m: any) => m.meal_name === planMeal.meal_name);
+              const isRegistered = record?.completed;
+
+              return (
+                <div key={i} className={`mb-2 rounded-xl p-3 ${isRegistered ? (record.flag === 'green' ? 'bg-green-50' : record.flag === 'yellow' ? 'bg-amber-50' : 'bg-red-50') : 'bg-gray-50 ring-1 ring-gray-200'}`}>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs font-medium">{planMeal.meal_name}</p>
+                    {isRegistered && <div className={`w-2 h-2 rounded-full ${record.flag === 'green' ? 'bg-green-400' : record.flag === 'yellow' ? 'bg-amber-400' : 'bg-red-400'}`} />}
                   </div>
-                ))}
-              </div>
-            ) : <p className="text-xs text-gray-400 text-center py-2">{selectedDay.flag === 'gray' ? 'Nenhum registro neste dia.' : 'Sem detalhes.'}</p>}
-            <button onClick={() => setSelectedDay(null)} className="w-full mt-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500">Fechar</button>
+
+                  {isRegistered ? (
+                    <p className="text-[11px] text-gray-600">{record.actual_description || record.feedback || 'Registrado'}</p>
+                  ) : (
+                    <div>
+                      <p className="text-[10px] text-gray-400 mb-2">{(planMeal.ingredient_rows || []).map((r: any) => r.main.item).join(' · ')}</p>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button onClick={async () => {
+                          await supabase.from('meals').insert({ plan_id: plan.id, date: selectedDay.date, meal_name: planMeal.meal_name, planned_description: (planMeal.ingredient_rows || []).map((r: any) => `${r.main.item} ${r.main.quantity}`).join(' + '), actual_description: 'Seguiu o plano', flag: 'green', completed: true, feedback: 'Seguiu o plano!' });
+                          const { data } = await supabase.from('meals').select('*').eq('plan_id', plan.id).eq('date', selectedDay.date);
+                          setSelectedDayMeals(data || []);
+                          loadJourney();
+                        }} className="py-2 rounded-lg bg-green-100 text-green-800 text-[10px] font-medium active:scale-95 transition-transform">
+                          ✅ Segui
+                        </button>
+                        <button onClick={async () => {
+                          await supabase.from('meals').insert({ plan_id: plan.id, date: selectedDay.date, meal_name: planMeal.meal_name, planned_description: (planMeal.ingredient_rows || []).map((r: any) => `${r.main.item} ${r.main.quantity}`).join(' + '), actual_description: 'Parcialmente', flag: 'yellow', completed: true, feedback: 'Parcialmente dentro do plano.' });
+                          const { data } = await supabase.from('meals').select('*').eq('plan_id', plan.id).eq('date', selectedDay.date);
+                          setSelectedDayMeals(data || []);
+                          loadJourney();
+                        }} className="py-2 rounded-lg bg-amber-100 text-amber-800 text-[10px] font-medium active:scale-95 transition-transform">
+                          ⚠️ +/-
+                        </button>
+                        <button onClick={async () => {
+                          await supabase.from('meals').insert({ plan_id: plan.id, date: selectedDay.date, meal_name: planMeal.meal_name, planned_description: (planMeal.ingredient_rows || []).map((r: any) => `${r.main.item} ${r.main.quantity}`).join(' + '), actual_description: 'Fora do plano', flag: 'red', completed: true, feedback: 'Fora do plano.' });
+                          const { data } = await supabase.from('meals').select('*').eq('plan_id', plan.id).eq('date', selectedDay.date);
+                          setSelectedDayMeals(data || []);
+                          loadJourney();
+                        }} className="py-2 rounded-lg bg-red-100 text-red-800 text-[10px] font-medium active:scale-95 transition-transform">
+                          ❌ Não
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <button onClick={() => setSelectedDay(null)} className="w-full mt-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-500">Fechar</button>
           </div>
         </div>
       )}
